@@ -1,0 +1,21 @@
+name: Verify Development API
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet test tests/JChurch.Tests/JChurch.Tests.csproj --configuration Release --logger trx
+      - run: dotnet publish src/jchurchFunction/jchurchFunction.csproj --configuration Release --output artifacts/functions
+      - uses: actions/upload-artifact@v4
+        with:
+          name: development-function-package-not-approved-for-deployment
+          path: artifacts/functions
+          include-hidden-files: true

@@ -1,0 +1,8 @@
+node_modules/
+.expo/
+dist/
+coverage/
+.env.local
+expo-env.d.ts
+playwright-report/
+test-results/

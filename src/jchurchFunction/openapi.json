@@ -1,0 +1,142 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "JChurch Development API", "version": "1.0.0", "description": "Anonymous, synthetic-data development only. IDs are not access control. DELETE archives; PUT requires If-Match and fully replaces mutable fields. Schedules, group parents and custom-field types are immutable. Occurrences are generated explicitly or by the optional timer. All timestamps are UTC unless marked local." },
+  "servers": [{ "url": "/api/v1" }],
+  "security": [],
+  "paths": {
+    "/health": { "get": { "operationId": "health", "responses": { "200": { "description": "Process healthy, not a database readiness probe" } } } },
+    "/openapi.json": { "get": { "operationId": "openapi", "responses": { "200": { "description": "This specification" } } } },
+    "/churches": {
+      "get": { "operationId": "listChurches", "parameters": [{ "$ref": "#/components/parameters/search" }, { "$ref": "#/components/parameters/pageSize" }, { "$ref": "#/components/parameters/continuationToken" }, { "$ref": "#/components/parameters/includeArchived" }], "responses": { "200": { "$ref": "#/components/responses/Page" }, "default": { "$ref": "#/components/responses/Problem" } } },
+      "post": { "operationId": "createChurch", "requestBody": { "$ref": "#/components/requestBodies/Church" }, "responses": { "201": { "$ref": "#/components/responses/Created" }, "default": { "$ref": "#/components/responses/Problem" } } }
+    },
+    "/churches/{churchId}": {
+      "parameters": [{ "$ref": "#/components/parameters/churchId" }],
+      "get": { "operationId": "getChurch", "responses": { "200": { "$ref": "#/components/responses/Document" }, "default": { "$ref": "#/components/responses/Problem" } } },
+      "put": { "operationId": "updateChurch", "parameters": [{ "$ref": "#/components/parameters/IfMatch" }], "requestBody": { "$ref": "#/components/requestBodies/Church" }, "responses": { "200": { "$ref": "#/components/responses/Document" }, "default": { "$ref": "#/components/responses/Problem" } } },
+      "delete": { "operationId": "archiveChurch", "parameters": [{ "$ref": "#/components/parameters/IfMatch" }], "responses": { "204": { "description": "Archived; all history retained" }, "default": { "$ref": "#/components/responses/Problem" } } }
+    },
+    "/churches/{churchId}/groups": {
+      "parameters": [{ "$ref": "#/components/parameters/churchId" }],
+      "get": { "operationId": "listGroups", "parameters": [{ "$ref": "#/components/parameters/search" }, { "$ref": "#/components/parameters/parentGroupId" }, { "$ref": "#/components/parameters/pageSize" }, { "$ref": "#/components/parameters/continuationToken" }, { "$ref": "#/components/parameters/includeArchived" }], "responses": { "200": { "$ref": "#/components/responses/Page" }, "default": { "$ref": "#/components/responses/Problem" } } },
+      "post": { "operationId": "createGroup", "requestBody": { "$ref": "#/components/requestBodies/Group" }, "responses": { "201": { "$ref": "#/components/responses/Created" }, "default": { "$ref": "#/components/responses/Problem" } } }
+    },
+    "/churches/{churchId}/groups/{id}": {
+      "parameters": [{ "$ref": "#/components/parameters/churchId" }, { "$ref": "#/components/parameters/id" }],
+      "get": { "operationId": "getGroup", "responses": { "200": { "$ref": "#/components/responses/Document" }, "default": { "$ref": "#/components/responses/Problem" } } },
+      "put": { "operationId": "updateGroup", "parameters": [{ "$ref": "#/components/parameters/IfMatch" }], "requestBody": { "$ref": "#/components/requestBodies/Group" }, "responses": { "200": { "$ref": "#/components/responses/Document" }, "default": { "$ref": "#/components/responses/Problem" } } },
+      "delete": { "operationId": "archiveGroup", "parameters": [{ "$ref": "#/components/parameters/IfMatch" }], "responses": { "204": { "description": "Archived; memberships retained; archive children first" }, "default": { "$ref": "#/components/responses/Problem" } } }
+    },
+    "/churches/{churchId}/members": {
+      "parameters": [{ "$ref": "#/components/parameters/churchId" }],
+      "get": { "operationId": "listMembers", "parameters": [{ "$ref": "#/components/parameters/search" }, { "$ref": "#/components/parameters/groupId" }, { "$ref": "#/components/parameters/pageSize" }, { "$ref": "#/components/parameters/continuationToken" }, { "$ref": "#/components/parameters/includeArchived" }], "responses": { "200": { "$ref": "#/components/responses/Page" }, "default": { "$ref": "#/components/responses/Problem" } } },
+      "post": { "operationId": "createMember", "requestBody": { "$ref": "#/components/requestBodies/Member" }, "responses": { "201": { "$ref": "#/components/responses/Created" }, "default": { "$ref": "#/components/responses/Problem" } } }
+    },
+    "/churches/{churchId}/members/{id}": {
+      "parameters": [{ "$ref": "#/components/parameters/churchId" }, { "$ref": "#/components/parameters/id" }],
+      "get": { "operationId": "getMember", "responses": { "200": { "$ref": "#/components/responses/Document" }, "default": { "$ref": "#/components/responses/Problem" } } },
+      "put": { "operationId": "updateMember", "parameters": [{ "$ref": "#/components/parameters/IfMatch" }], "requestBody": { "$ref": "#/components/requestBodies/Member" }, "responses": { "200": { "$ref": "#/components/responses/Document" }, "default": { "$ref": "#/components/responses/Problem" } } },
+      "delete": { "operationId": "archiveMember", "parameters": [{ "$ref": "#/components/parameters/IfMatch" }], "responses": { "204": { "description": "Archived; attendance retained" }, "default": { "$ref": "#/components/responses/Problem" } } }
+    },
+    "/churches/{churchId}/custom-fields": {
+      "parameters": [{ "$ref": "#/components/parameters/churchId" }],
+      "get": { "operationId": "listCustomFields", "parameters": [{ "$ref": "#/components/parameters/search" }, { "$ref": "#/components/parameters/pageSize" }, { "$ref": "#/components/parameters/continuationToken" }, { "$ref": "#/components/parameters/includeArchived" }], "responses": { "200": { "$ref": "#/components/responses/Page" }, "default": { "$ref": "#/components/responses/Problem" } } },
+      "post": { "operationId": "createCustomField", "requestBody": { "$ref": "#/components/requestBodies/CustomField" }, "responses": { "201": { "$ref": "#/components/responses/Created" }, "default": { "$ref": "#/components/responses/Problem" } } }
+    },
+    "/churches/{churchId}/custom-fields/{id}": {
+      "parameters": [{ "$ref": "#/components/parameters/churchId" }, { "$ref": "#/components/parameters/id" }],
+      "get": { "operationId": "getCustomField", "responses": { "200": { "$ref": "#/components/responses/Document" }, "default": { "$ref": "#/components/responses/Problem" } } },
+      "put": { "operationId": "updateCustomField", "parameters": [{ "$ref": "#/components/parameters/IfMatch" }], "requestBody": { "$ref": "#/components/requestBodies/CustomField" }, "responses": { "200": { "$ref": "#/components/responses/Document" }, "default": { "$ref": "#/components/responses/Problem" } } },
+      "delete": { "operationId": "archiveCustomField", "parameters": [{ "$ref": "#/components/parameters/IfMatch" }], "responses": { "204": { "description": "Definition archived; existing member values retained" }, "default": { "$ref": "#/components/responses/Problem" } } }
+    },
+    "/churches/{churchId}/events": {
+      "parameters": [{ "$ref": "#/components/parameters/churchId" }],
+      "get": { "operationId": "listEvents", "parameters": [{ "$ref": "#/components/parameters/search" }, { "$ref": "#/components/parameters/pageSize" }, { "$ref": "#/components/parameters/continuationToken" }, { "$ref": "#/components/parameters/includeArchived" }], "responses": { "200": { "$ref": "#/components/responses/Page" }, "default": { "$ref": "#/components/responses/Problem" } } },
+      "post": { "operationId": "createEvent", "requestBody": { "$ref": "#/components/requestBodies/Event" }, "responses": { "201": { "$ref": "#/components/responses/Created" }, "default": { "$ref": "#/components/responses/Problem" } } }
+    },
+    "/churches/{churchId}/events/{id}": {
+      "parameters": [{ "$ref": "#/components/parameters/churchId" }, { "$ref": "#/components/parameters/id" }],
+      "get": { "operationId": "getEvent", "responses": { "200": { "$ref": "#/components/responses/Document" }, "default": { "$ref": "#/components/responses/Problem" } } },
+      "put": { "operationId": "updateEvent", "parameters": [{ "$ref": "#/components/parameters/IfMatch" }], "requestBody": { "$ref": "#/components/requestBodies/Event" }, "responses": { "200": { "$ref": "#/components/responses/Document" }, "default": { "$ref": "#/components/responses/Problem" } } },
+      "delete": { "operationId": "archiveEvent", "parameters": [{ "$ref": "#/components/parameters/IfMatch" }], "responses": { "204": { "description": "Archived; new check-ins disallowed and history retained" }, "default": { "$ref": "#/components/responses/Problem" } } }
+    },
+    "/churches/{churchId}/events/{id}/occurrences": {
+      "parameters": [{ "$ref": "#/components/parameters/churchId" }, { "$ref": "#/components/parameters/id" }],
+      "get": { "operationId": "listEventOccurrences", "parameters": [{ "$ref": "#/components/parameters/from" }, { "$ref": "#/components/parameters/to" }, { "$ref": "#/components/parameters/pageSize" }, { "$ref": "#/components/parameters/continuationToken" }], "responses": { "200": { "$ref": "#/components/responses/Page" }, "default": { "$ref": "#/components/responses/Problem" } } },
+      "post": { "operationId": "generateOccurrences", "description": "Retry-safe generation from seven days ago through 90 days ahead. Existing overrides and cancellations are never overwritten.", "responses": { "200": { "description": "Number created", "content": { "application/json": { "schema": { "type": "object", "properties": { "created": { "type": "integer" } } } } } }, "default": { "$ref": "#/components/responses/Problem" } } }
+    },
+    "/churches/{churchId}/occurrences": {
+      "parameters": [{ "$ref": "#/components/parameters/churchId" }],
+      "get": { "operationId": "discoverOccurrences", "parameters": [{ "$ref": "#/components/parameters/eventId" }, { "$ref": "#/components/parameters/from" }, { "$ref": "#/components/parameters/to" }, { "$ref": "#/components/parameters/pageSize" }, { "$ref": "#/components/parameters/continuationToken" }], "responses": { "200": { "$ref": "#/components/responses/Page" }, "default": { "$ref": "#/components/responses/Problem" } } }
+    },
+    "/churches/{churchId}/occurrences/{id}": {
+      "parameters": [{ "$ref": "#/components/parameters/churchId" }, { "$ref": "#/components/parameters/id" }],
+      "get": { "operationId": "getOccurrence", "responses": { "200": { "$ref": "#/components/responses/Document" }, "default": { "$ref": "#/components/responses/Problem" } } },
+      "put": { "operationId": "overrideOccurrence", "parameters": [{ "$ref": "#/components/parameters/IfMatch" }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OccurrenceOverride" } } } }, "responses": { "200": { "$ref": "#/components/responses/Document" }, "default": { "$ref": "#/components/responses/Problem" } } }
+    },
+    "/churches/{churchId}/occurrences/{id}/check-ins": {
+      "parameters": [{ "$ref": "#/components/parameters/churchId" }, { "$ref": "#/components/parameters/id" }],
+      "post": { "operationId": "checkIn", "description": "Explicit memberId is not proof of identity. Check-in is allowed regardless of occurrence start/end times. Cancelled occurrences reject new check-ins. Repeated requests return the existing receipt.", "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": false, "required": ["memberId"], "properties": { "memberId": { "type": "string" } } } } } }, "responses": { "201": { "$ref": "#/components/responses/Created" }, "200": { "$ref": "#/components/responses/Document" }, "default": { "$ref": "#/components/responses/Problem" } } }
+    },
+    "/churches/{churchId}/occurrences/{id}/check-ins/{memberId}": {
+      "parameters": [{ "$ref": "#/components/parameters/churchId" }, { "$ref": "#/components/parameters/id" }, { "name": "memberId", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "get": { "operationId": "checkInStatus", "responses": { "200": { "description": "Check-in status", "content": { "application/json": { "schema": { "type": "object", "properties": { "checkedIn": { "type": "boolean" }, "receipt": { "type": "object", "nullable": true } } } } } }, "default": { "$ref": "#/components/responses/Problem" } } }
+    },
+    "/churches/{churchId}/occurrences/{id}/scan-check-ins": {
+      "parameters": [{ "$ref": "#/components/parameters/churchId" }, { "$ref": "#/components/parameters/id" }],
+      "post": { "operationId": "scanCheckIn", "description": "Resolve a current church-scoped code and check in without a time restriction. Codes are identifiers, not authentication. Cosmos requires strong consistency. 404 for unknown/replaced codes; 409 for new attendance at cancelled/archived resources; 429 includes Retry-After. Already-persisted receipts return 200.", "requestBody": { "$ref": "#/components/requestBodies/Scan" }, "responses": { "201": { "$ref": "#/components/responses/ScanResult" }, "200": { "$ref": "#/components/responses/ScanResult" }, "default": { "$ref": "#/components/responses/Problem" } } }
+    },
+    "/churches/{churchId}/occurrences/{id}/scan-check-ins/status": {
+      "parameters": [{ "$ref": "#/components/parameters/churchId" }, { "$ref": "#/components/parameters/id" }],
+      "post": { "operationId": "scanCheckInStatus", "description": "Read-only status recovery. Code is in the body to avoid URL logging. Replaced codes return 404, which does not prove that an earlier write failed.", "requestBody": { "$ref": "#/components/requestBodies/Scan" }, "responses": { "200": { "description": "Resolved member and current attendance", "content": { "application/json": { "schema": { "type": "object", "required": ["member", "checkedIn", "receipt"], "properties": { "member": { "$ref": "#/components/schemas/ScanMember" }, "checkedIn": { "type": "boolean" }, "receipt": { "type": "object", "nullable": true, "additionalProperties": true } } } } } }, "default": { "$ref": "#/components/responses/Problem" } } }
+    },
+    "/churches/{churchId}/attendance": {
+      "parameters": [{ "$ref": "#/components/parameters/churchId" }],
+      "get": { "operationId": "reportAttendance", "description": "Ranges are [from,to), maximum 93 days. Defaults to UTC midnight 30 days ago through tomorrow. Group filters use check-in-time snapshots, not current memberships.", "parameters": [{ "$ref": "#/components/parameters/eventId" }, { "$ref": "#/components/parameters/occurrenceId" }, { "$ref": "#/components/parameters/memberId" }, { "$ref": "#/components/parameters/groupId" }, { "$ref": "#/components/parameters/includeSubgroups" }, { "$ref": "#/components/parameters/from" }, { "$ref": "#/components/parameters/to" }, { "$ref": "#/components/parameters/pageSize" }, { "$ref": "#/components/parameters/continuationToken" }], "responses": { "200": { "$ref": "#/components/responses/Page" }, "default": { "$ref": "#/components/responses/Problem" } } }
+    }
+  },
+  "components": {
+    "parameters": {
+      "churchId": { "name": "churchId", "in": "path", "required": true, "schema": { "type": "string" } },
+      "id": { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } },
+      "IfMatch": { "name": "If-Match", "in": "header", "required": true, "description": "Exact _etag from the last read; missing returns 428 and stale returns 412.", "schema": { "type": "string" } },
+      "search": { "name": "search", "in": "query", "schema": { "type": "string", "maxLength": 100 }, "description": "Case-insensitive name substring." },
+      "pageSize": { "name": "pageSize", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 } },
+      "continuationToken": { "name": "continuationToken", "in": "query", "schema": { "type": "string" }, "description": "Opaque, URL-encoded token bound to the same filters and page size. Continue until null, including after empty Cosmos pages." },
+      "includeArchived": { "name": "includeArchived", "in": "query", "schema": { "type": "boolean", "default": false } },
+      "includeSubgroups": { "name": "includeSubgroups", "in": "query", "schema": { "type": "boolean", "default": false } },
+      "eventId": { "name": "eventId", "in": "query", "schema": { "type": "string" } },
+      "occurrenceId": { "name": "occurrenceId", "in": "query", "schema": { "type": "string" } },
+      "memberId": { "name": "memberId", "in": "query", "schema": { "type": "string" } },
+      "groupId": { "name": "groupId", "in": "query", "schema": { "type": "string" } },
+      "parentGroupId": { "name": "parentGroupId", "in": "query", "schema": { "type": "string" } },
+      "from": { "name": "from", "in": "query", "schema": { "type": "string", "format": "date-time" } },
+      "to": { "name": "to", "in": "query", "schema": { "type": "string", "format": "date-time" } }
+    },
+    "requestBodies": {
+      "Scan": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": false, "required": ["scanCode"], "properties": { "scanCode": { "type": "string", "maxLength": 128, "description": "Trim surrounding whitespace, normalize ASCII uppercase, then require 8-64 letters, digits or hyphens. Preserve leading zeroes." } } } } } },
+      "Church": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ChurchInput" } } } },
+      "Group": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GroupInput" } } } },
+      "Member": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MemberInput" } } } },
+      "CustomField": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CustomFieldInput" } } } },
+      "Event": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EventInput" } } } }
+    },
+    "responses": {
+      "ScanResult": { "description": "Confirmed attendance and minimal member identity", "content": { "application/json": { "schema": { "type": "object", "required": ["member", "receipt", "already"], "properties": { "member": { "$ref": "#/components/schemas/ScanMember" }, "receipt": { "$ref": "#/components/schemas/Document" }, "already": { "type": "boolean" } } } } } },
+      "Created": { "description": "Persisted document", "headers": { "ETag": { "schema": { "type": "string" } }, "Location": { "schema": { "type": "string" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Document" } } } },
+      "Document": { "description": "Resource with type-specific fields and server metadata", "headers": { "ETag": { "schema": { "type": "string" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Document" } } } },
+      "Page": { "description": "Page sorted by ID", "content": { "application/json": { "schema": { "type": "object", "required": ["items", "continuationToken"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/Document" } }, "continuationToken": { "type": "string", "nullable": true } } } } } },
+      "Problem": { "description": "Problem Details: 400 invalid input, 404 not found, 405 unsupported method, 409 conflict/cancelled occurrence, 412 stale ETag, 413 body too large, 415 unsupported content type, 428 missing ETag, 429 throttled, 503 unavailable. Retry 429/503 check-ins with the same IDs.", "content": { "application/problem+json": { "schema": { "type": "object", "properties": { "type": { "type": "string" }, "title": { "type": "string" }, "status": { "type": "integer" }, "detail": { "type": "string" }, "traceId": { "type": "string" } } } } } }
+    },
+    "schemas": {
+      "ScanMember": { "type": "object", "required": ["id", "firstName", "lastName"], "properties": { "id": { "type": "string" }, "firstName": { "type": "string" }, "lastName": { "type": "string" } } },
+      "Document": { "type": "object", "required": ["id", "churchId", "kind", "_etag", "active"], "properties": { "id": { "type": "string", "readOnly": true }, "churchId": { "type": "string", "readOnly": true }, "kind": { "type": "string", "readOnly": true }, "_etag": { "type": "string", "readOnly": true }, "active": { "type": "boolean", "readOnly": true }, "searchText": { "type": "string", "readOnly": true } }, "additionalProperties": true },
+      "ChurchInput": { "type": "object", "additionalProperties": false, "required": ["name"], "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 200 } } },
+      "GroupInput": { "type": "object", "additionalProperties": false, "required": ["name"], "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 200 }, "parentGroupId": { "type": "string", "nullable": true } } },
+      "MemberInput": { "type": "object", "additionalProperties": false, "required": ["firstName", "lastName"], "properties": { "scanCode": { "type": "string", "nullable": true, "maxLength": 128, "description": "Current church-unique code. Canonical 8-64 uppercase ASCII letters/digits/hyphens. Omission on update preserves the assignment; null removes it. Replacement deletes the old lookup without archiving. Conflict returns 409." }, "scanCodeFormat": { "type": "string", "nullable": true, "enum": ["qr", "code128"], "description": "Card presentation; default qr when a code is assigned. Omission preserves current format." }, "firstName": { "type": "string", "minLength": 1, "maxLength": 200 }, "lastName": { "type": "string", "minLength": 1, "maxLength": 200 }, "middleName": { "type": "string", "maxLength": 200, "nullable": true }, "birthDate": { "type": "string", "format": "date", "nullable": true }, "school": { "type": "string", "maxLength": 200, "nullable": true }, "phone": { "type": "string", "maxLength": 50, "nullable": true }, "email": { "type": "string", "format": "email", "nullable": true }, "groupIds": { "type": "array", "maxItems": 50, "items": { "type": "string" } }, "customFields": { "type": "object", "maxProperties": 50, "additionalProperties": true, "description": "Keys are custom-field definition IDs; values must match each definition's type." } } },
+      "CustomFieldInput": { "type": "object", "additionalProperties": false, "required": ["name", "fieldType"], "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 200 }, "fieldType": { "type": "string", "enum": ["text", "number", "boolean", "date"] } } },
+      "EventInput": { "type": "object", "additionalProperties": false, "required": ["name", "localStart", "timeZone", "durationMinutes"], "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 200 }, "localStart": { "type": "string", "example": "2026-09-20T09:00:00", "description": "Wall-clock datetime without Z/offset." }, "timeZone": { "type": "string", "example": "America/New_York" }, "durationMinutes": { "type": "integer", "minimum": 1, "maximum": 10080 }, "recurrenceRule": { "type": "string", "nullable": true, "maxLength": 500, "example": "FREQ=WEEKLY;BYDAY=SU", "description": "Daily/weekly/monthly/yearly RRULE. No sub-day modifiers." } } },
+      "OccurrenceOverride": { "type": "object", "additionalProperties": false, "required": ["startsAt", "endsAt", "cancelled"], "properties": { "startsAt": { "type": "string", "format": "date-time" }, "endsAt": { "type": "string", "format": "date-time" }, "cancelled": { "type": "boolean" } } }
+    }
+  }
+}

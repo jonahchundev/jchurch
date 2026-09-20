@@ -1,0 +1,10 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
+    "AZURE_FUNCTIONS_ENVIRONMENT": "Development",
+    "Storage__Provider": "InMemory",
+    "AzureWebJobs.OccurrenceMaintenance.Disabled": "true"
+  },
+  "Host": { "LocalHttpPort": 7071, "CORS": "" }
+}

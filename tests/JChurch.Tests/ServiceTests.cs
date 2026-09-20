@@ -1,0 +1,163 @@
+using JChurch.Domain;
+using JChurch.Services;
+using JChurch.Storage;
+using Xunit;
+
+namespace JChurch.Tests;
+
+public sealed class TestClock(DateTimeOffset now) : TimeProvider
+{
+    public DateTimeOffset Now { get; set; } = now;
+    public override DateTimeOffset GetUtcNow() => Now;
+}
+
+public sealed class ServiceTests
+{
+    [Fact]
+    public async Task ScanCodesReplaceAtomicallyAndRejectConcurrentOwners()
+    {
+        var repository = new InMemoryRepository<Member>();
+        var member = (await repository.Create(new Member { Id = "member", ChurchId = "church", ScanCode = " 0000-old ", ScanCodeFormat = "qr" })).Item;
+        Assert.Equal(member.Id, (await repository.ResolveScanCode("church", "0000-OLD"))!.Id);
+        var updated = await repository.Replace(member with { ScanCode = "0000-new" }, member.ETag);
+        Assert.Null(await repository.ResolveScanCode("church", "0000-old"));
+        Assert.Equal(member.Id, (await repository.ResolveScanCode("church", "0000-new"))!.Id);
+        Assert.Null(await repository.ResolveScanCode("other", "0000-new"));
+        Assert.Equal(412, (await Assert.ThrowsAsync<ApiException>(() => repository.Replace(member with { ScanCode = "stale-code" }, member.ETag))).Status);
+        Assert.Null(await repository.ResolveScanCode("church", "stale-code"));
+        var outcomes = await Task.WhenAll(Enumerable.Range(0, 20).Select(index => Task.Run(async () =>
+        {
+            try { await repository.Create(new Member { Id = $"member_{index}", ChurchId = "church", ScanCode = "shared-code" }); return true; }
+            catch (ApiException error) when (error.Code == "scan_code_in_use") { return false; }
+        })));
+        Assert.Single(outcomes, success => success);
+        await repository.Replace(updated with { Active = false }, updated.ETag);
+        Assert.Null(await repository.ResolveScanCode("church", "0000-new"));
+        Assert.Equal("scan_code_in_use", (await Assert.ThrowsAsync<ApiException>(() => repository.Create(new Member { Id = "another", ChurchId = "church", ScanCode = "0000-new" }))).Code);
+    }
+
+    internal static Repositories Memory() => new(new InMemoryRepository<Church>(), new InMemoryRepository<Group>(), new InMemoryRepository<Member>(),
+        new InMemoryRepository<CustomField>(), new InMemoryRepository<ChurchEvent>(), new InMemoryRepository<Occurrence>(), new InMemoryRepository<Attendance>());
+
+    [Fact]
+    public async Task CheckInIsAtomicAndPreservesHistoricalGroups()
+    {
+        var repositories = Memory();
+        var clock = new TestClock(DateTimeOffset.Parse("2026-09-20T10:00:00Z"));
+        var directory = new DirectoryService(repositories, clock);
+        var service = new CheckInService(repositories, directory, clock);
+        var church = await directory.Save(new Church { Name = "Synthetic Church" }, null);
+        var group = await directory.Save(new Group { Name = "Adults" }, church.Id);
+        var subgroup = await directory.Save(new Group { Name = "Class", ParentGroupId = group.Id }, church.Id);
+        var member = await directory.Save(new Member { FirstName = "Ada", LastName = "Test", GroupIds = [group.Id, subgroup.Id] }, church.Id);
+        var definition = (await repositories.Events.Create(new ChurchEvent { Id = "event", ChurchId = church.Id })).Item;
+        await repositories.Occurrences.Create(new Occurrence { Id = "occurrence", ChurchId = church.Id, EventId = definition.Id, StartsAt = clock.Now, EndsAt = clock.Now.AddHours(1) });
+        var results = await Task.WhenAll(Enumerable.Range(0, 100).Select(_ => Task.Run(() => service.CheckIn(church.Id, "occurrence", member.Id))));
+        Assert.Single(results, result => result.Created);
+        await directory.Save(member with { GroupIds = [] }, church.Id, member.Id, member.ETag);
+        var report = await repositories.Attendance.Search(new Query { ChurchId = church.Id, GroupId = group.Id, IncludeSubgroups = true });
+        Assert.Single(report.Items);
+        Assert.Equal(2, report.Items[0].GroupIds.Length);
+        clock.Now = clock.Now.AddDays(1);
+        Assert.False((await service.CheckIn(church.Id, "occurrence", member.Id)).Created);
+    }
+
+    [Theory]
+    [InlineData("short")]
+    [InlineData("0000-\u017fcan")]
+    [InlineData("0000-\u00dfcan")]
+    [InlineData("https://invalid")]
+    [InlineData("embedded space")]
+    [InlineData("code\ninside")]
+    public void ScanCodesRejectInvalidValues(string code) => Assert.Throws<ApiException>(() => ScanCodes.Normalize(code));
+
+    [Fact]
+    public async Task ScanCodesPreserveLegacyEditsAndAttendanceAcrossReissue()
+    {
+        var repositories = Memory();
+        var clock = new TestClock(DateTimeOffset.UtcNow);
+        var directory = new DirectoryService(repositories, clock);
+        var church = await directory.Save(new Church { Name = "Synthetic" }, null);
+        var member = await directory.Save(new Member { FirstName = "Scan", LastName = "Test", ScanCode = "0000-old", ScanCodeFormat = "code128" }, church.Id);
+        member = await directory.Save(new Member { FirstName = "Legacy", LastName = "Edit" }, church.Id, member.Id, member.ETag);
+        Assert.Equal("0000-OLD", member.ScanCode);
+        Assert.Equal("code128", member.ScanCodeFormat);
+        await repositories.Events.Create(new ChurchEvent { Id = "event", ChurchId = church.Id });
+        var occurrence = (await repositories.Occurrences.Create(new Occurrence { Id = "occurrence", ChurchId = church.Id, EventId = "event", StartsAt = clock.Now.AddDays(2), EndsAt = clock.Now.AddDays(2).AddHours(1) })).Item;
+        var service = new CheckInService(repositories, directory, clock);
+        var resolved = await service.ResolveScan(church.Id, "0000-old");
+        Assert.True((await service.CheckIn(church.Id, occurrence.Id, resolved.Id)).Created);
+        member = await directory.Save(member with { ScanCode = "0000-new" }, church.Id, member.Id, member.ETag);
+        Assert.Equal("scan_code_not_found", (await Assert.ThrowsAsync<ApiException>(() => service.ResolveScan(church.Id, "0000-old"))).Code);
+        Assert.False((await service.CheckIn(church.Id, occurrence.Id, (await service.ResolveScan(church.Id, "0000-new")).Id)).Created);
+        var other = await directory.Save(new Member { FirstName = "Other", LastName = "Test", ScanCode = "other-code" }, church.Id);
+        await repositories.Occurrences.Replace(occurrence with { Cancelled = true }, occurrence.ETag);
+        Assert.Equal("check_in_closed", (await Assert.ThrowsAsync<ApiException>(() => service.CheckIn(church.Id, occurrence.Id, other.Id))).Code);
+        member = await directory.Save(member with { ScanCode = null, ScanCodeSpecified = true }, church.Id, member.Id, member.ETag);
+        Assert.Null(member.ScanCode);
+        Assert.Null(await repositories.Members.ResolveScanCode(church.Id, "0000-new"));
+    }
+
+    [Theory]
+    [InlineData(-1, false)]
+    [InlineData(0, false)]
+    [InlineData(3599, false)]
+    [InlineData(3600, false)]
+    [InlineData(86400, false)]
+    [InlineData(-1, true)]
+    [InlineData(0, true)]
+    [InlineData(3600, true)]
+    public async Task CheckInIgnoresOccurrenceTimesButRejectsCancellation(int seconds, bool cancelled)
+    {
+        var repositories = Memory();
+        var start = DateTimeOffset.Parse("2026-09-20T10:00:00Z");
+        var clock = new TestClock(start.AddSeconds(seconds));
+        var directory = new DirectoryService(repositories, clock);
+        await repositories.Churches.Create(new Church { Id = "church", ChurchId = "church" });
+        await repositories.Members.Create(new Member { Id = "member", ChurchId = "church" });
+        await repositories.Events.Create(new ChurchEvent { Id = "event", ChurchId = "church" });
+        await repositories.Occurrences.Create(new Occurrence { Id = "occurrence", ChurchId = "church", EventId = "event", StartsAt = start, EndsAt = start.AddHours(1), Cancelled = cancelled });
+        var service = new CheckInService(repositories, directory, clock);
+        if (!cancelled)
+        {
+            var result = await service.CheckIn("church", "occurrence", "member");
+            Assert.True(result.Created);
+            Assert.Equal(clock.Now, result.Item.CheckedInAt);
+        }
+        else
+        {
+            var error = await Assert.ThrowsAsync<ApiException>(() => service.CheckIn("church", "occurrence", "member"));
+            Assert.Equal(409, error.Status);
+            Assert.Equal("check_in_closed", error.Code);
+        }
+    }
+
+    [Fact]
+    public async Task DirectoryRejectsCrossChurchGroupsAndDeepHierarchy()
+    {
+        var repositories = Memory();
+        var service = new DirectoryService(repositories, TimeProvider.System);
+        var first = await service.Save(new Church { Name = "First" }, null);
+        var second = await service.Save(new Church { Name = "Second" }, null);
+        var parent = await service.Save(new Group { Name = "Parent" }, first.Id);
+        var child = await service.Save(new Group { Name = "Child", ParentGroupId = parent.Id }, first.Id);
+        await Assert.ThrowsAsync<ApiException>(() => service.Save(new Group { Name = "Too deep", ParentGroupId = child.Id }, first.Id));
+        Assert.Equal(404, (await Assert.ThrowsAsync<ApiException>(() => service.Save(new Member { FirstName = "Ada", LastName = "Test", GroupIds = [parent.Id] }, second.Id))).Status);
+        Assert.Equal(409, (await Assert.ThrowsAsync<ApiException>(() => service.Archive<Group>(first.Id, parent.Id, parent.ETag))).Status);
+    }
+
+    [Fact]
+    public void WeeklyRecurrenceKeepsWallClockTimeAcrossDst()
+    {
+        var definition = new ChurchEvent
+        {
+            Id = "event", ChurchId = "church", LocalStart = new DateTime(2026, 3, 1, 9, 0, 0),
+            TimeZone = "America/New_York", RecurrenceRule = "FREQ=WEEKLY;COUNT=3", DurationMinutes = 60
+        };
+        var results = EventService.Expand(definition, DateTimeOffset.Parse("2026-03-01T00:00:00Z"), DateTimeOffset.Parse("2026-03-20T00:00:00Z"));
+        Assert.Equal(3, results.Count);
+        Assert.Equal(14, results[0].StartsAt.Hour);
+        Assert.Equal(13, results[1].StartsAt.Hour);
+        Assert.Equal(results.Select(item => item.Id), EventService.Expand(definition, DateTimeOffset.Parse("2026-03-01T00:00:00Z"), DateTimeOffset.Parse("2026-03-20T00:00:00Z")).Select(item => item.Id));
+    }
+}

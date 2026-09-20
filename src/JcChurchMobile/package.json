@@ -1,0 +1,70 @@
+{
+  "name": "jc-church-mobile",
+  "version": "0.1.0",
+  "private": true,
+  "main": "expo-router/entry",
+  "scripts": {
+    "start": "expo start --localhost",
+    "ios": "expo start --ios --localhost",
+    "android": "expo start --android --localhost",
+    "web": "expo start --web --localhost",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run tests/client.test.ts",
+    "test:e2e": "playwright test",
+    "generate:api": "openapi-typescript ../jchurchFunction/openapi.json -o src/api/generated.ts",
+    "export:web": "expo export --platform web",
+    "export:native": "expo export --platform ios --platform android"
+  },
+  "dependencies": {
+    "@expo-google-fonts/manrope": "^0.4.2",
+    "@expo/metro-runtime": "~57.0.16",
+    "@expo/vector-icons": "^15.0.2",
+    "@hookform/resolvers": "^5.9.1",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-native-community/datetimepicker": "9.1.0",
+    "@react-native-picker/picker": "2.11.4",
+    "@tanstack/react-query": "^5.103.1",
+    "bwip-js": "^4.11.4",
+    "expo": "~57.0.24",
+    "expo-camera": "~57.0.5",
+    "expo-constants": "~57.0.19",
+    "expo-crypto": "~57.0.3",
+    "expo-file-system": "~57.0.7",
+    "expo-font": "~57.0.4",
+    "expo-linking": "~57.0.10",
+    "expo-print": "~57.0.2",
+    "expo-router": "~57.0.22",
+    "expo-sharing": "~57.0.21",
+    "expo-splash-screen": "~57.0.9",
+    "expo-status-bar": "~57.0.1",
+    "luxon": "^3.7.2",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-hook-form": "^7.88.0",
+    "react-native": "0.86.3",
+    "react-native-reanimated": "4.5.1",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "~4.26.0",
+    "react-native-svg": "15.15.4",
+    "react-native-web": "^0.21.2",
+    "react-native-worklets": "0.10.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/luxon": "^3.7.5",
+    "@types/node": "^26.6.2",
+    "@types/react": "~19.2.4",
+    "@zxing/library": "^0.23.0",
+    "openapi-typescript": "^7.13.0",
+    "typescript": "~5.9.3",
+    "vitest": "^5.0.1"
+  },
+  "expo": {
+    "install": {
+      "exclude": [
+        "typescript"
+      ]
+    }
+  }
+}
