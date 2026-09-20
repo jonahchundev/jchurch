@@ -147,6 +147,40 @@ public sealed class ServiceTests
     }
 
     [Fact]
+    public async Task GroupLifecyclePreservesMembershipsAndRejectsInvalidWrites()
+    {
+        var repositories = Memory();
+        var service = new DirectoryService(repositories, TimeProvider.System);
+        var church = await service.Save(new Church { Name = "Group lifecycle" }, null);
+        var other = await service.Save(new Church { Name = "Other" }, null);
+        var parent = await service.Save(new Group { Name = " Parent " }, church.Id);
+        var child = await service.Save(new Group { Name = " Child ", ParentGroupId = parent.Id }, church.Id);
+        Assert.Equal("Parent", parent.Name);
+        Assert.Equal("Child", child.Name);
+        Assert.Equal(404, (await Assert.ThrowsAsync<ApiException>(() => service.Save(new Group { Name = "Foreign", ParentGroupId = parent.Id }, other.Id))).Status);
+        Assert.Equal(404, (await Assert.ThrowsAsync<ApiException>(() => service.Get<Group>(other.Id, child.Id))).Status);
+        Assert.Equal(404, (await Assert.ThrowsAsync<ApiException>(() => service.Archive<Group>(other.Id, child.Id, child.ETag))).Status);
+        Assert.Equal(400, (await Assert.ThrowsAsync<ApiException>(() => service.Save(new Group { Name = "Self", ParentGroupId = "self" }, church.Id, "self"))).Status);
+        Assert.Equal(400, (await Assert.ThrowsAsync<ApiException>(() => service.Save(parent with { ParentGroupId = child.Id }, church.Id, parent.Id, parent.ETag))).Status);
+        Assert.Equal(400, (await Assert.ThrowsAsync<ApiException>(() => service.Save(child with { ParentGroupId = null }, church.Id, child.Id, child.ETag))).Status);
+        var renamed = await service.Save(child with { Name = "Renamed" }, church.Id, child.Id, child.ETag);
+        Assert.Equal(child.ParentGroupId, renamed.ParentGroupId);
+        Assert.Equal(412, (await Assert.ThrowsAsync<ApiException>(() => service.Save(child, church.Id, child.Id, child.ETag))).Status);
+        Assert.Equal(412, (await Assert.ThrowsAsync<ApiException>(() => service.Archive<Group>(church.Id, child.Id, child.ETag))).Status);
+        var member = await service.Save(new Member { FirstName = "Group", LastName = "Member", GroupIds = [parent.Id, child.Id] }, church.Id);
+        Assert.Equal("has_subgroups", (await Assert.ThrowsAsync<ApiException>(() => service.Archive<Group>(church.Id, parent.Id, parent.ETag))).Code);
+        await service.Archive<Group>(church.Id, child.Id, renamed.ETag);
+        Assert.Equal(member.GroupIds, (await service.Get<Member>(church.Id, member.Id)).GroupIds);
+        Assert.Equal("archived", (await Assert.ThrowsAsync<ApiException>(() => service.Save(new Member { FirstName = "New", LastName = "Member", GroupIds = [child.Id] }, church.Id))).Code);
+        member = await service.Save(member with { GroupIds = [parent.Id] }, church.Id, member.Id, member.ETag);
+        Assert.Equal(new[] { parent.Id }, member.GroupIds);
+        await service.Archive<Group>(church.Id, parent.Id, parent.ETag);
+        Assert.Empty((await repositories.Groups.Search(new Query { ChurchId = church.Id })).Items);
+        Assert.Equal(2, (await repositories.Groups.Search(new Query { ChurchId = church.Id, ActiveOnly = false })).Items.Count);
+        Assert.Equal("archived", (await Assert.ThrowsAsync<ApiException>(() => service.Save(new Group { Name = "New", ParentGroupId = parent.Id }, church.Id))).Code);
+    }
+
+    [Fact]
     public void WeeklyRecurrenceKeepsWallClockTimeAcrossDst()
     {
         var definition = new ChurchEvent

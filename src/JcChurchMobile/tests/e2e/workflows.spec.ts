@@ -46,6 +46,212 @@ const pageBody = (
   continuationToken: string | null = null,
 ) => ({ items, continuationToken });
 
+test("settings manage groups creates subgroups and feeds member assignment labels", async ({ page }, testInfo) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  let groups = [
+    {
+      ...metadata("group_adults", alpha.id),
+      name: "Adults",
+      parentGroupId: null,
+    },
+  ];
+  let savedMember = { ...jordan, groupIds: [] as string[] };
+  let stale = true;
+  const groupWrites: unknown[] = [];
+  const memberWrites: unknown[] = [];
+  await page.route("**/api/v1/**", async (route) => {
+    const url = new URL(route.request().url());
+    const path = url.pathname.replace("/api/v1", "");
+    const method = route.request().method();
+    let body: unknown = pageBody([]);
+    if (path === "/churches") body = pageBody([alpha, beta]);
+    else if (path === `/churches/${alpha.id}`) body = alpha;
+    else if (path === `/churches/${beta.id}`) body = beta;
+    else if (path === `/churches/${alpha.id}/groups`) {
+      if (method === "POST") {
+        const input = route.request().postDataJSON();
+        groupWrites.push(input);
+        const next = {
+          ...metadata(`group_${groups.length}`, alpha.id),
+          ...input,
+          _etag: '"created"',
+          active: true,
+        };
+        groups = [...groups, next];
+        body = next;
+      } else body = url.searchParams.has("continuationToken")
+        ? pageBody(groups.filter(group => !group.parentGroupId))
+        : pageBody(groups.filter(group => group.parentGroupId), "parents");
+    } else if (path.startsWith(`/churches/${alpha.id}/groups/`)) {
+      const id = path.split("/").at(-1)!;
+      const existing = groups.find((group) => group.id === id)!;
+      if (method === "PUT") {
+        if (stale) {
+          stale = false;
+          groups = groups.map((group) =>
+            group.id === id ? { ...group, name: "Students", _etag: '"latest"' } : group,
+          );
+          await route.fulfill({ status: 412, json: { detail: "ETag is stale." } });
+          return;
+        }
+        const input = route.request().postDataJSON();
+        groupWrites.push(input);
+        groups = groups.map((group) =>
+          group.id === id ? { ...group, ...input, _etag: '"saved"' } : group,
+        );
+      } else if (method === "DELETE") {
+        groups = groups.map((group) =>
+          group.id === id ? { ...group, active: false, _etag: '"archived"' } : group,
+        );
+        await route.fulfill({ status: 204 });
+        return;
+      }
+      body = groups.find((group) => group.id === id) ?? existing;
+    } else if (path === `/churches/${alpha.id}/members`) body = pageBody([savedMember]);
+    else if (path === `/churches/${alpha.id}/members/${jordan.id}`) {
+      if (method === "PUT") {
+        const input = route.request().postDataJSON();
+        memberWrites.push(input);
+        savedMember = { ...savedMember, ...input, _etag: '"member-saved"' };
+      }
+      body = savedMember;
+    } else if (path === `/churches/${alpha.id}/custom-fields`) body = pageBody([]);
+    await route.fulfill({ json: body });
+  });
+  await page.goto(`/church/${alpha.id}`);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: /Manage groups/ }).click();
+  await expect(page.getByRole("heading", { name: "Groups", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Add group", exact: true }).first().click();
+  await page.getByRole("textbox", { name: "Group name", exact: true }).fill("Youth");
+  await page.getByRole("button", { name: "Save group", exact: true }).click();
+  await expect(page.getByText("Group saved.", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Add subgroup under Youth", exact: true }).click();
+  await expect(page.getByText("Parent group: Youth", { exact: true })).toBeVisible();
+  await page.getByRole("textbox", { name: "Subgroup name", exact: true }).fill("High School");
+  await page.getByRole("button", { name: "Save subgroup", exact: true }).click();
+  await expect(page.getByText("Group saved.", { exact: true })).toBeVisible();
+  await page.getByRole("textbox", { name: "Search groups" }).fill("high");
+  await expect(page.getByRole("button", { name: "Add subgroup under Youth", exact: true })).toBeVisible();
+  await expect(page.getByText("Adults", { exact: true })).toHaveCount(0);
+  await page.getByRole("textbox", { name: "Search groups" }).fill("missing");
+  await expect(page.getByText("No groups found.", { exact: true })).toBeVisible();
+  await page.getByRole("textbox", { name: "Search groups" }).fill("");
+  await page.screenshot({ path: testInfo.outputPath("groups.png"), fullPage: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.getByRole("button", { name: /High School/ }).click();
+  await page.getByRole("textbox", { name: "Subgroup name", exact: true }).fill("Students High");
+  await page.getByRole("button", { name: "Save subgroup", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText(
+    "This record changed elsewhere",
+  );
+  await page.getByRole("button", { name: "Reload latest version", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "Subgroup name", exact: true })).toHaveValue("Students");
+  await page.getByRole("textbox", { name: "Subgroup name", exact: true }).fill("High School");
+  await page.getByRole("button", { name: "Save subgroup", exact: true }).click();
+  await expect(page.getByText("Group saved.", { exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "Members", exact: true }).click();
+  await page.getByRole("button", { name: /Jordan Example/ }).click();
+  await page.getByRole("button", { name: "Edit member", exact: true }).click();
+  await page.getByLabel("Youth / High School").check();
+  await page.getByRole("button", { name: "Save member", exact: true }).click();
+  await expect(page.getByText("Member saved.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Jordan Example/ })).toContainText("Youth / High School");
+  await page.getByRole("tab", { name: "Home", exact: true }).click();
+  await page.getByRole("button", { name: /Manage groups/ }).click();
+  await page.getByRole("button", { name: /High School/ }).click();
+  await page.getByRole("button", { name: "Archive subgroup", exact: true }).click();
+  await page.getByRole("button", { name: "Confirm archive", exact: true }).click();
+  await expect(page.getByText("Group archived.", { exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "Members", exact: true }).click();
+  await page.getByRole("button", { name: "Add member", exact: true }).click();
+  await expect(page.getByLabel("Youth / High School", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("button", { name: /Jordan Example/ }).click();
+  await page.getByRole("button", { name: "Edit member", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("Archived group assignments");
+  await expect(page.getByRole("button", { name: "Save member", exact: true })).toBeDisabled();
+  await page.getByLabel("Youth / High School (archived)", { exact: true }).click();
+  await expect(page.getByLabel("Youth / High School (archived)", { exact: true })).toHaveCount(0);
+  await page.getByLabel("Youth", { exact: true }).check();
+  await page.getByRole("button", { name: "Save member", exact: true }).click();
+  await expect(page.getByText("Member saved.", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Switch church", exact: true }).click();
+  await page.getByRole("button", { name: /Beta Community/ }).click();
+  await page.getByRole("button", { name: /Manage groups/ }).click();
+  await expect(page.getByText("No groups defined.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Youth", { exact: true })).toHaveCount(0);
+  expect(errors).toEqual([]);
+  expect(groupWrites).toMatchObject([
+    { name: "Youth", parentGroupId: null },
+    { name: "High School" },
+    { name: "High School" },
+  ]);
+  expect(memberWrites[0]).toMatchObject({ groupIds: ["group_2"] });
+});
+
+test("group drafts survive uncertain writes without duplicate submission", async ({ page }) => {
+  let saved = { ...metadata("group_existing", alpha.id), name: "Existing", parentGroupId: null };
+  let creates = 0;
+  let updates = 0;
+  let archives = 0;
+  await page.route("**/api/v1/**", async route => {
+    const path = new URL(route.request().url()).pathname.replace("/api/v1", "");
+    const method = route.request().method();
+    if (path.endsWith("/groups") && method === "POST") {
+      creates++;
+      await route.abort("failed");
+      return;
+    }
+    if (path.endsWith(`/groups/${saved.id}`) && method !== "GET") {
+      expect(route.request().headers()["if-match"]).toBe(saved._etag);
+      if (method === "PUT") {
+        updates++;
+        saved = { ...saved, ...route.request().postDataJSON(), _etag: '"updated"' };
+      } else {
+        archives++;
+        saved = { ...saved, active: false, _etag: '"archived"' };
+      }
+      await route.abort("failed");
+      return;
+    }
+    await route.fulfill({ json: path === `/churches/${alpha.id}` ? alpha
+      : path.endsWith(`/groups/${saved.id}`) ? saved : pageBody([saved]) });
+  });
+  await page.goto(`/church/${alpha.id}/groups`);
+  await page.getByRole("button", { name: "Add group", exact: true }).first().click();
+  await page.getByRole("textbox", { name: "Group name", exact: true }).fill("Draft");
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Discard unsaved changes?" })).toBeVisible();
+  await page.getByRole("button", { name: "Keep editing", exact: true }).click();
+  await page.getByRole("button", { name: "Save group", exact: true }).click();
+  await expect(page.getByText(/Creation could not be confirmed/)).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Group name", exact: true })).toHaveValue("Draft");
+  await expect(page.getByRole("button", { name: "Save group", exact: true })).toBeDisabled();
+  expect(creates).toBe(1);
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("button", { name: "Discard changes", exact: true }).click();
+  await page.getByRole("button", { name: /Existing Top-level group/ }).click();
+  await page.getByRole("textbox", { name: "Group name", exact: true }).fill("Recovered");
+  await page.getByRole("button", { name: "Save group", exact: true }).click();
+  await expect(page.getByText(/Confirmation pending/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save group", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Archive group", exact: true })).toBeDisabled();
+  await page.getByRole("button", { name: "Reload latest version", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "Group name", exact: true })).toHaveValue("Recovered");
+  expect(updates).toBe(1);
+  await page.getByRole("button", { name: "Archive group", exact: true }).click();
+  await page.getByRole("button", { name: "Confirm archive", exact: true }).click();
+  await expect(page.getByText(/Confirmation pending/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Confirm archive", exact: true })).toBeDisabled();
+  await page.getByRole("button", { name: "Reload latest version", exact: true }).click();
+  await expect(page.getByText("This group is archived.", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(page.getByRole("button", { name: /Recovered Archived group/ })).toBeVisible();
+  expect(archives).toBe(1);
+});
+
 test("event navigation preserves the selected church through Home and tabs", async ({ page }) => {
   const missingPaths: string[] = [];
   await page.route("**/api/v1/**", async route => {
@@ -422,6 +628,16 @@ test("church settings, members, sessions and duplicate-safe check-in", async ({
     await page.goto("/");
     await page.getByRole("textbox", { name: "Search churches" }).fill(name);
     await page.getByRole("button", { name: new RegExp(name) }).click();
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("button", { name: /Manage groups/ }).click();
+    await page.getByRole("button", { name: "Add group", exact: true }).first().click();
+    await page.getByRole("textbox", { name: "Group name", exact: true }).fill("Youth");
+    await page.getByRole("button", { name: "Save group", exact: true }).click();
+    await page.getByRole("button", { name: "Add subgroup under Youth", exact: true }).click();
+    await page.getByRole("textbox", { name: "Subgroup name", exact: true }).fill("High School");
+    await page.getByRole("button", { name: "Save subgroup", exact: true }).click();
+    await expect(page.getByRole("button", { name: /High School Youth/ })).toBeVisible();
+    await page.getByRole("tab", { name: "Home", exact: true }).click();
     await page.getByRole("button", { name: /Manage members/ }).click();
     await page.getByRole("button", { name: "Add member", exact: true }).click();
     await page
@@ -430,6 +646,7 @@ test("church settings, members, sessions and duplicate-safe check-in", async ({
     await page
       .getByRole("textbox", { name: "Last name", exact: true })
       .fill("Sample");
+    await page.getByLabel("Youth / High School", { exact: true }).check();
     await page
       .getByRole("button", { name: "Save member", exact: true })
       .click();
@@ -448,7 +665,7 @@ test("church settings, members, sessions and duplicate-safe check-in", async ({
       .click();
     await expect(
       page.getByRole("button", { name: /Jordan Sample/ }),
-    ).toContainText("Sample Academy");
+    ).toContainText("Youth / High School");
     await page.goto(`/church/${churchId}/events`);
     await page.getByRole("button", { name: "Add event", exact: true }).click();
     await page
@@ -511,6 +728,21 @@ test("church settings, members, sessions and duplicate-safe check-in", async ({
       .getByRole("button", { name: "Check in Jordan", exact: true })
       .click();
     await expect(page.getByText(/^Already checked in ·/)).toBeVisible();
+    await page.getByRole("tab", { name: "Home", exact: true }).click();
+    await page.getByRole("button", { name: /Manage groups/ }).click();
+    await page.getByRole("button", { name: /Youth Top-level group/ }).click();
+    await page.getByRole("button", { name: "Archive group", exact: true }).click();
+    await page.getByRole("button", { name: "Confirm archive", exact: true }).click();
+    await expect(page.getByText("Archive subgroups before their parent.", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    await page.getByRole("button", { name: /High School Youth/ }).click();
+    await page.getByRole("button", { name: "Archive subgroup", exact: true }).click();
+    await page.getByRole("button", { name: "Confirm archive", exact: true }).click();
+    await expect(page.getByText("Group archived.", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: /Youth Top-level group/ }).click();
+    await page.getByRole("button", { name: "Archive group", exact: true }).click();
+    await page.getByRole("button", { name: "Confirm archive", exact: true }).click();
+    await expect(page.getByRole("button", { name: /Youth Archived group/ })).toBeVisible();
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.getByRole("textbox", { name: "Search churches" }).fill(name);
     await page.getByRole("button", { name: new RegExp(name) }).click();

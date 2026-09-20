@@ -32,6 +32,12 @@ export default function Home() {
           onPress={() => router.navigate(`/church/${churchId}/events`)}
         />
         <Row
+          title="Manage groups"
+          subtitle="Groups and subgroups"
+          icon="albums-outline"
+          onPress={() => router.navigate(`/church/${churchId}/groups`)}
+        />
+        <Row
           title="Start check-in"
           subtitle="Choose an event and session"
           icon="checkmark-circle-outline"

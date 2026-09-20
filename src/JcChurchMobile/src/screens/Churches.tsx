@@ -72,6 +72,14 @@ export default function Churches({ manage = false }: { manage?: boolean }) {
         onChange={setSearch}
         placeholder="Search churches"
       />
+      {manage && selected && (
+        <Row
+          title="Manage groups"
+          subtitle="Groups and subgroups for this church"
+          icon="albums-outline"
+          onPress={() => router.navigate(`/church/${selected}/groups`)}
+        />
+      )}
       {!!notice && <Notice>{notice}</Notice>}
       <QueryState
         pending={query.isPending}

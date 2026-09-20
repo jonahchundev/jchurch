@@ -34,9 +34,15 @@ export const memberName = (member: Member) =>
     .join(" ");
 export function groupNames(member: Member, groups: Group[]) {
   return (member.groupIds ?? [])
-    .map(
-      (id) => groups.find((group) => group.id === id)?.name ?? "Archived group",
-    )
+    .map((id) => {
+      const group = groups.find((candidate) => candidate.id === id);
+      if (!group) return "Archived group";
+      if (!group.parentGroupId) return group.name;
+      const parent = groups.find(
+        (candidate) => candidate.id === group.parentGroupId,
+      );
+      return `${parent?.name ?? "Group"} / ${group.name}`;
+    })
     .join(" / ");
 }
 
@@ -250,6 +256,9 @@ function MemberEditor({
   const uncertain = error instanceof ApiError && error.uncertain;
   const locked = !editing || busy || uncertain || !!replacement || (!current?.active && !!current);
   const stale = error instanceof ApiError && error.status === 412;
+  const assignedGroups = form.watch("groupIds");
+  const hasArchivedGroups = groups.isSuccess && assignedGroups.some(id =>
+    !groups.data?.find(group => group.id === id)?.active);
   return (
     <Sheet
       title={current ? memberName(current) : "Add member"}
@@ -356,6 +365,9 @@ function MemberEditor({
           )}
         />
         <Heading>Groups</Heading>
+        {editing && hasArchivedGroups && (
+          <Notice error>Archived group assignments must be removed or replaced with active groups before saving this member.</Notice>
+        )}
         <QueryState
           pending={groups.isPending}
           error={groups.error}
@@ -497,6 +509,7 @@ function MemberEditor({
               uncertain ||
               !!replacement ||
               stale ||
+              hasArchivedGroups ||
               !groups.isSuccess ||
               !definitions.isSuccess ||
               (!!current && !current.active)
