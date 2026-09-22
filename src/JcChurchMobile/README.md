@@ -92,3 +92,10 @@ Verified during implementation: 14 API/domain tests; 12 desktop and phone-sized 
 - `npm audit` currently reports 16 moderate advisories through dependencies. Review upstream compatible fixes before release; do not run a forced SDK downgrade. No high/critical advisories were reported in this audit.
 - TypeScript is pinned to 5.9 for the OpenAPI generator's declared peer compatibility and excluded from Expo's TypeScript-version recommendation. Strict compilation and all three bundle targets pass with this configuration.
 - Authentication, authorization, secure token storage, privacy review, and release approval remain pending. No resources were deployed and no production readiness is claimed.
+
+### Deployment to Azure Static Website
+
+npm install
+npm expo export -platform web
+
+npx @azure/static-web-apps-cli deploy .\dist --deployment-token {deploymentToken} --env production
