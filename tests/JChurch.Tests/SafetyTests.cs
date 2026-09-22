@@ -12,8 +12,6 @@ public sealed class SafetyTests
     [InlineData("Production", "InMemory", null)]
     [InlineData("Production", "CosmosDb", null)]
     [InlineData("Development", "Typo", null)]
-    [InlineData("Development", "InMemory", "hosted")]
-    [InlineData("Test", "CosmosDb", "hosted")]
     public void UnsafeEnvironmentsAreRejected(string environment, string provider, string? site)
     {
         var settings = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>

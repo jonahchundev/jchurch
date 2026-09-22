@@ -62,6 +62,40 @@ public sealed class ServiceTests
         Assert.False((await service.CheckIn(church.Id, "occurrence", member.Id)).Created);
     }
 
+    [Fact]
+    public async Task UndoRetainsAuditAndAllowsAnotherCheckIn()
+    {
+        var repositories = Memory();
+        var clock = new TestClock(DateTimeOffset.Parse("2026-09-20T10:00:00Z"));
+        var directory = new DirectoryService(repositories, clock);
+        var service = new CheckInService(repositories, directory, clock);
+        await repositories.Churches.Create(new Church { Id = "church", ChurchId = "church" });
+        await repositories.Members.Create(new Member { Id = "member", ChurchId = "church", FirstName = "Ada", LastName = "Test" });
+        await repositories.Events.Create(new ChurchEvent { Id = "event", ChurchId = "church" });
+        await repositories.Occurrences.Create(new Occurrence { Id = "occurrence", ChurchId = "church", EventId = "event", StartsAt = clock.Now, EndsAt = clock.Now.AddHours(1) });
+
+        var checkedIn = await service.CheckIn("church", "occurrence", "member");
+        Assert.True(checkedIn.Created);
+        Assert.Equal(["checked_in"], checkedIn.Item.Audit.Select(entry => entry.Action));
+
+        clock.Now = clock.Now.AddMinutes(1);
+        var undone = await service.Undo("church", "occurrence", "member");
+        Assert.True(undone.Created);
+        Assert.False(undone.Item.Active);
+        Assert.Equal(["checked_in", "undone"], undone.Item.Audit.Select(entry => entry.Action));
+        Assert.Null(await service.Status("church", "occurrence", "member"));
+        Assert.Empty((await repositories.Attendance.Search(new Query { ChurchId = "church" })).Items);
+        Assert.Single((await repositories.Attendance.Search(new Query { ChurchId = "church", ActiveOnly = false })).Items);
+        Assert.False((await service.Undo("church", "occurrence", "member")).Created);
+
+        clock.Now = clock.Now.AddMinutes(1);
+        var checkedInAgain = await service.CheckIn("church", "occurrence", "member");
+        Assert.True(checkedInAgain.Created);
+        Assert.True(checkedInAgain.Item.Active);
+        Assert.Equal(clock.Now, checkedInAgain.Item.CheckedInAt);
+        Assert.Equal(["checked_in", "undone", "checked_in"], checkedInAgain.Item.Audit.Select(entry => entry.Action));
+    }
+
     [Theory]
     [InlineData("short")]
     [InlineData("0000-\u017fcan")]
@@ -99,15 +133,16 @@ public sealed class ServiceTests
     }
 
     [Theory]
-    [InlineData(-1, false)]
-    [InlineData(0, false)]
-    [InlineData(3599, false)]
-    [InlineData(3600, false)]
-    [InlineData(86400, false)]
-    [InlineData(-1, true)]
-    [InlineData(0, true)]
-    [InlineData(3600, true)]
-    public async Task CheckInIgnoresOccurrenceTimesButRejectsCancellation(int seconds, bool cancelled)
+    [InlineData(-1, false, false)]
+    [InlineData(0, false, false)]
+    [InlineData(3599, false, false)]
+    [InlineData(3600, false, false)]
+    [InlineData(86400, false, false)]
+    [InlineData(-1, true, false)]
+    [InlineData(0, true, false)]
+    [InlineData(3600, true, false)]
+    [InlineData(3600, false, true)]
+    public async Task CheckInIgnoresOccurrenceTimesButRejectsClosedSessions(int seconds, bool cancelled, bool archived)
     {
         var repositories = Memory();
         var start = DateTimeOffset.Parse("2026-09-20T10:00:00Z");
@@ -116,9 +151,9 @@ public sealed class ServiceTests
         await repositories.Churches.Create(new Church { Id = "church", ChurchId = "church" });
         await repositories.Members.Create(new Member { Id = "member", ChurchId = "church" });
         await repositories.Events.Create(new ChurchEvent { Id = "event", ChurchId = "church" });
-        await repositories.Occurrences.Create(new Occurrence { Id = "occurrence", ChurchId = "church", EventId = "event", StartsAt = start, EndsAt = start.AddHours(1), Cancelled = cancelled });
+        await repositories.Occurrences.Create(new Occurrence { Id = "occurrence", ChurchId = "church", EventId = "event", StartsAt = start, EndsAt = start.AddHours(1), Cancelled = cancelled, Archived = archived });
         var service = new CheckInService(repositories, directory, clock);
-        if (!cancelled)
+        if (!cancelled && !archived)
         {
             var result = await service.CheckIn("church", "occurrence", "member");
             Assert.True(result.Created);
@@ -130,6 +165,33 @@ public sealed class ServiceTests
             Assert.Equal(409, error.Status);
             Assert.Equal("check_in_closed", error.Code);
         }
+    }
+
+    [Fact]
+    public async Task CompletedOccurrencesCanBeArchivedAndRestored()
+    {
+        var repositories = Memory();
+        var clock = new TestClock(DateTimeOffset.Parse("2026-09-20T12:00:00Z"));
+        var directory = new DirectoryService(repositories, clock);
+        var events = new EventService(repositories, directory, clock);
+        await repositories.Churches.Create(new Church { Id = "church", ChurchId = "church" });
+        await repositories.Events.Create(new ChurchEvent { Id = "event", ChurchId = "church" });
+        var completed = (await repositories.Occurrences.Create(new Occurrence
+        {
+            Id = "completed", ChurchId = "church", EventId = "event", StartsAt = clock.Now.AddHours(-2), EndsAt = clock.Now.AddHours(-1)
+        })).Item;
+        var future = (await repositories.Occurrences.Create(new Occurrence
+        {
+            Id = "future", ChurchId = "church", EventId = "event", StartsAt = clock.Now.AddHours(1), EndsAt = clock.Now.AddHours(2)
+        })).Item;
+
+        var archived = await events.Override("church", completed.Id, completed.StartsAt, completed.EndsAt, completed.Cancelled, true, completed.ETag);
+        Assert.True(archived.Archived);
+        var restored = await events.Override("church", archived.Id, archived.StartsAt, archived.EndsAt, archived.Cancelled, false, archived.ETag);
+        Assert.False(restored.Archived);
+        var error = await Assert.ThrowsAsync<ApiException>(() => events.Override("church", future.Id, future.StartsAt, future.EndsAt, future.Cancelled, true, future.ETag));
+        Assert.Equal(400, error.Status);
+        Assert.Equal("Only completed occurrences can be archived or restored.", error.Message);
     }
 
     [Fact]

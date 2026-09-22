@@ -12,7 +12,7 @@ using Microsoft.Extensions.Logging;
 
 namespace JChurch.Functions;
 
-public sealed class ChurchApi(Repositories repositories, DirectoryService directory, EventService events, CheckInService checkIns, TimeProvider clock, ILogger<ChurchApi> logger)
+public sealed class ChurchApi(Repositories repositories, DirectoryService directory, EventService events, CheckInService checkIns, ILogger<ChurchApi> logger)
 {
     private sealed record Result(int Status, object? Body = null, string? Location = null);
     private sealed record CheckInRequest(string MemberId);
@@ -22,7 +22,7 @@ public sealed class ChurchApi(Repositories repositories, DirectoryService direct
         TokenLimit = 120, TokensPerPeriod = 120, ReplenishmentPeriod = TimeSpan.FromMinutes(1),
         AutoReplenishment = true, QueueLimit = 0
     });
-    private sealed record OverrideRequest(DateTimeOffset StartsAt, DateTimeOffset EndsAt, bool Cancelled);
+    private sealed record OverrideRequest(DateTimeOffset StartsAt, DateTimeOffset EndsAt, bool Cancelled, bool Archived);
 
     [Function("ChurchApi")]
     public async Task<HttpResponseData> Run([HttpTrigger(AuthorizationLevel.Anonymous, "get", "post", "put", "delete", Route = "v1/{*path}")] HttpRequestData request,
@@ -89,9 +89,14 @@ public sealed class ChurchApi(Repositories repositories, DirectoryService direct
         if (route.Length == 5 && route[2] == "events" && route[4] == "occurrences")
         {
             await directory.Get<ChurchEvent>(churchId, route[3], cancellationToken: cancellationToken);
-            if (request.Method == "POST") return new(200, new { created = await events.Generate(churchId, route[3], cancellationToken) });
+            if (request.Method == "POST") return new(200, new { occurrence = await events.Generate(churchId, route[3], cancellationToken) });
             if (request.Method == "GET") return new(200, await repositories.Occurrences.Search(ParseQuery(request.Query, churchId) with { EventId = route[3] }, cancellationToken));
             throw MethodNotAllowed();
+        }
+        if (route is ["churches", _, "events", var eventId, "occurrence-check-in-counts"] && request.Method == "GET")
+        {
+            await directory.Get<ChurchEvent>(churchId, eventId, cancellationToken: cancellationToken);
+            return new(200, new { items = await repositories.Attendance.ActiveCheckInCounts(churchId, eventId, cancellationToken) });
         }
         if (route[2] == "occurrences" && route[4] == "scan-check-ins" &&
             (route.Length == 5 || route is [_, _, _, _, _, "status"]))
@@ -123,6 +128,11 @@ public sealed class ChurchApi(Repositories repositories, DirectoryService direct
                 var receipt = await checkIns.Status(churchId, route[3], route[5], cancellationToken);
                 return new(200, new { checkedIn = receipt is not null, receipt });
             }
+            if (route.Length == 6 && request.Method == "DELETE")
+            {
+                var result = await checkIns.Undo(churchId, route[3], route[5], cancellationToken);
+                return new(200, new { receipt = result.Item, undone = result.Created });
+            }
         }
         throw new ApiException(404, "not_found", "Route not found.");
     }
@@ -147,7 +157,7 @@ public sealed class ChurchApi(Repositories repositories, DirectoryService direct
             if (request.Method != "PUT" || id is null) throw MethodNotAllowed();
             var etag = IfMatch(request);
             var input = await Body<OverrideRequest>(request, cancellationToken);
-            return new(200, await events.Override(churchId, id, input.StartsAt, input.EndsAt, input.Cancelled, etag, cancellationToken));
+            return new(200, await events.Override(churchId, id, input.StartsAt, input.EndsAt, input.Cancelled, input.Archived, etag, cancellationToken));
         }
         if ((request.Method == "POST" && id is null) || (request.Method == "PUT" && id is not null))
         {
@@ -210,12 +220,8 @@ public sealed class ChurchApi(Repositories repositories, DirectoryService direct
             IncludeSubgroups = Flag("includeSubgroups"), ActiveOnly = !Flag("includeArchived"), From = Date("from"), To = Date("to"), ContinuationToken = values["continuationToken"],
             PageSize = values["pageSize"] is not { } size ? 50 : int.TryParse(size, out var parsed) ? parsed : throw new ApiException(400, "invalid_query", "Invalid pageSize.")
         };
-        if (attendance)
-        {
-            var today = new DateTimeOffset(clock.GetUtcNow().UtcDateTime.Date, TimeSpan.Zero);
-            query = query with { From = query.From ?? today.AddDays(-30), To = query.To ?? today.AddDays(1) };
+        if (attendance && query.From is not null && query.To is not null)
             DirectoryService.Require(query.To - query.From <= TimeSpan.FromDays(93), "Attendance report ranges must not exceed 93 days.");
-        }
         query.Validate();
         return query;
     }

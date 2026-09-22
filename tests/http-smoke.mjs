@@ -33,11 +33,12 @@ await api(`${root}/members/${member.id}`, 'PUT', memberInput, 412, member._etag)
 assert.notEqual(updated._etag, member._etag);
 
 const now = new Date();
-const localStart = new Date(now.getTime() - 10 * 60000).toISOString().replace('Z', '');
+const localStart = new Date(now.getTime() + 10 * 60000).toISOString().replace('Z', '');
 const event = await api(`${root}/events`, 'POST', { name: 'Synthetic service', localStart, timeZone: 'UTC', durationMinutes: 60 }, 201);
-assert.equal((await api(`${root}/events/${event.id}/occurrences`, 'POST')).created, 1);
-assert.equal((await api(`${root}/events/${event.id}/occurrences`, 'POST')).created, 0);
-const occurrence = (await api(`${root}/events/${event.id}/occurrences`)).items[0];
+const generated = await api(`${root}/events/${event.id}/occurrences`, 'POST');
+assert.ok(generated.occurrence);
+assert.equal((await api(`${root}/events/${event.id}/occurrences`, 'POST')).occurrence, null);
+const occurrence = generated.occurrence;
 const checkInPath = `${root}/occurrences/${occurrence.id}/check-ins`;
 const responses = await Promise.all(Array.from({ length: 100 }, async () => {
   const response = await fetch(`${base}${checkInPath}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ memberId: member.id }), signal: AbortSignal.timeout(30000) });
@@ -47,6 +48,12 @@ const responses = await Promise.all(Array.from({ length: 100 }, async () => {
 assert.equal(responses.filter(response => response.status === 201).length, 1);
 assert.equal(new Set(responses.map(response => response.receipt.id)).size, 1);
 assert.equal((await api(`${checkInPath}/${member.id}`)).checkedIn, true);
+assert.deepEqual((await api(`${root}/events/${event.id}/occurrence-check-in-counts`)).items, [{ occurrenceId: occurrence.id, checkedInCount: 1 }]);
+assert.equal((await api(`${checkInPath}/${member.id}`, 'DELETE')).undone, true);
+assert.equal((await api(`${checkInPath}/${member.id}`)).checkedIn, false);
+assert.deepEqual((await api(`${root}/events/${event.id}/occurrence-check-in-counts`)).items, []);
+assert.equal((await api(checkInPath, 'POST', { memberId: member.id }, 201)).memberId, member.id);
+assert.deepEqual((await api(`${root}/events/${event.id}/occurrence-check-in-counts`)).items, [{ occurrenceId: occurrence.id, checkedInCount: 1 }]);
 await api(`/churches/${other.id}/occurrences/${occurrence.id}/check-ins`, 'POST', { memberId: member.id }, 404);
 await api(`${root}/members/${member.id}`, 'PUT', { ...memberInput, groupIds: [] }, 200, updated._etag);
 const report = await api(`${root}/attendance?groupId=${group.id}&includeSubgroups=true`);
@@ -86,7 +93,7 @@ await api(scanPath, 'POST', { scanCode: scanInput.scanCode }, 404);
 await api(scanPath, 'POST', { scanCode: '0000-scan-stale' }, 404);
 assert.equal((await api(scanPath, 'POST', { scanCode: scanMember.scanCode })).receipt.id, firstScan.receipt.id);
 await api(`/churches/${other.id}/occurrences/${futureOccurrence.id}/scan-check-ins`, 'POST', { scanCode: scanMember.scanCode }, 404);
-await api(`${root}/occurrences/${futureOccurrence.id}`, 'PUT', { startsAt: futureOccurrence.startsAt, endsAt: futureOccurrence.endsAt, cancelled: true }, 200, futureOccurrence._etag);
+await api(`${root}/occurrences/${futureOccurrence.id}`, 'PUT', { startsAt: futureOccurrence.startsAt, endsAt: futureOccurrence.endsAt, cancelled: true, archived: false }, 200, futureOccurrence._etag);
 const cancelledMember = await api(`${root}/members`, 'POST', { ...scanInput, scanCode: '0000-scan-cancelled' }, 201);
 await api(scanPath, 'POST', { scanCode: cancelledMember.scanCode }, 409);
 await api(scanPath, 'POST', { scanCode: 'https://invalid' }, 400);

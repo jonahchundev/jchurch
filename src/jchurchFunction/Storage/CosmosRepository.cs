@@ -153,6 +153,22 @@ public sealed class CosmosRepository<T>(CosmosClient client, CosmosSettings sett
         }
     }
 
+    public async Task<IReadOnlyList<OccurrenceCheckInCount>> ActiveCheckInCounts(string churchId, string eventId, CancellationToken cancellationToken = default)
+    {
+        if (typeof(T) != typeof(Attendance)) throw new NotSupportedException("Check-in counts require an attendance repository.");
+        var definition = new QueryDefinition("SELECT c.occurrenceId, COUNT(1) AS checkedInCount FROM c WHERE c.churchId = @churchId AND c.kind = 'Attendance' AND c.eventId = @eventId AND c.active = true GROUP BY c.occurrenceId")
+            .WithParameter("@churchId", churchId)
+            .WithParameter("@eventId", eventId);
+        using var iterator = container.GetItemQueryIterator<OccurrenceCheckInCount>(definition, requestOptions: new QueryRequestOptions
+        {
+            PartitionKey = Partition(churchId)
+        });
+        var counts = new List<OccurrenceCheckInCount>();
+        while (iterator.HasMoreResults)
+            counts.AddRange(await iterator.ReadNextAsync(cancellationToken));
+        return counts;
+    }
+
     public static QueryDefinition BuildQuery(Query query)
     {
         var clauses = new List<string> { "c.churchId = @churchId", "c.kind = @kind" };

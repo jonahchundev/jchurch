@@ -70,23 +70,35 @@ public sealed class EventService(Repositories repositories, DirectoryService dir
         return (await repositories.Events.Create(definition, cancellationToken)).Item;
     }
 
-    public async Task<int> Generate(string churchId, string eventId, CancellationToken cancellationToken = default)
+    public async Task<Occurrence?> Generate(string churchId, string eventId, CancellationToken cancellationToken = default)
     {
         await directory.ActiveChurch(churchId, cancellationToken);
         var definition = await directory.Get<ChurchEvent>(churchId, eventId, true, cancellationToken);
         var now = clock.GetUtcNow();
         var occurrences = Expand(definition, now.AddDays(-7), now.AddDays(90));
-        var count = 0;
-        foreach (var occurrence in occurrences)
-            if ((await repositories.Occurrences.Create(occurrence, cancellationToken)).Created) count++;
-        return count;
+        foreach (var occurrence in occurrences.Where(item => item.StartsAt >= now).OrderBy(item => item.StartsAt))
+        {
+            if (await repositories.Occurrences.Get(churchId, occurrence.Id, cancellationToken: cancellationToken) is not null)
+                continue;
+            var created = await repositories.Occurrences.Create(occurrence, cancellationToken);
+            if (created.Created)
+                return created.Item;
+        }
+        return null;
     }
 
-    public async Task<Occurrence> Override(string churchId, string id, DateTimeOffset startsAt, DateTimeOffset endsAt, bool cancelled, string etag, CancellationToken cancellationToken = default)
+    public async Task<Occurrence> Override(string churchId, string id, DateTimeOffset startsAt, DateTimeOffset endsAt, bool cancelled, bool archived, string etag, CancellationToken cancellationToken = default)
     {
         await directory.ActiveChurch(churchId, cancellationToken);
         var existing = await directory.Get<Occurrence>(churchId, id, true, cancellationToken);
         var now = clock.GetUtcNow();
+        var scheduleChanged = startsAt != existing.StartsAt || endsAt != existing.EndsAt || cancelled != existing.Cancelled;
+        if (archived != existing.Archived)
+        {
+            DirectoryService.Require(existing.EndsAt <= now, "Only completed occurrences can be archived or restored.");
+            DirectoryService.Require(!scheduleChanged, "Archiving cannot change a session's schedule or cancellation state.");
+            return await repositories.Occurrences.Replace(existing with { Archived = archived }, etag, cancellationToken);
+        }
         DirectoryService.Require(existing.StartsAt > now, "Started or historical occurrences cannot be changed.");
         DirectoryService.Require(endsAt > startsAt && endsAt - startsAt <= TimeSpan.FromDays(7) && startsAt > now, "Override must be a future window of at most seven days.");
         return await repositories.Occurrences.Replace(existing with { StartsAt = startsAt.ToUniversalTime(), EndsAt = endsAt.ToUniversalTime(), Cancelled = cancelled, Overridden = true }, etag, cancellationToken);

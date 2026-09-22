@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ApiError, createApi, queryString } from "../src/api/client";
-import { attendanceRange, localToUtc, memberSchema, normalizeScanCode } from "../src/domain";
+import { attendanceRange, describeRecurrence, localToUtc, memberSchema, normalizeScanCode, timeZoneLabel } from "../src/domain";
 
 describe("API contracts", () => {
   it("submits scan codes only in request bodies and never retries automatically", async () => {
@@ -15,6 +15,12 @@ describe("API contracts", () => {
     expect((await createApi("", fetcher).scanStatus("church", "session", "0000-CODE")).checkedIn).toBe(true);
     expect(fetcher.mock.calls[0]?.[0]).toBe("/churches/church/occurrences/session/scan-check-ins/status");
     expect(fetcher.mock.calls[0]?.[1]).toMatchObject({ method: "POST", body: '{"scanCode":"0000-CODE"}' });
+  });
+  it("uses an occurrence-scoped delete for an auditable check-in undo", async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response('{"receipt":{"id":"receipt"},"undone":true}'));
+    expect((await createApi("", fetcher).undoCheckIn("church", "session", "member")).undone).toBe(true);
+    expect(fetcher.mock.calls[0]?.[0]).toBe("/churches/church/occurrences/session/check-ins/member");
+    expect(fetcher.mock.calls[0]?.[1]).toMatchObject({ method: "DELETE" });
   });
   it("encodes opaque cursors and keeps false filters", () => {
     expect(
@@ -124,5 +130,16 @@ describe("dates and validation", () => {
       from: "2027-01-10T00:00:00.000Z",
       to: "2027-01-11T00:00:00.000Z",
     });
+  });
+  it("describes supported recurrence rules without exposing RRULE syntax", () => {
+    expect(describeRecurrence(null)).toBe("One-time");
+    expect(describeRecurrence("FREQ=WEEKLY")).toBe("Every week");
+    expect(describeRecurrence("FREQ=MONTHLY;INTERVAL=2")).toBe("Every 2 months");
+  });
+  it("displays friendly labels for configured timezones", () => {
+    expect(timeZoneLabel("America/New_York")).toBe("Eastern Time");
+    expect(timeZoneLabel("America/Chicago")).toBe("Central Time");
+    expect(timeZoneLabel("UTC")).toBe("UTC");
+    expect(timeZoneLabel("Europe/London")).toBe("Europe/London");
   });
 });

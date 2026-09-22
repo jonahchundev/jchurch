@@ -59,14 +59,14 @@ public sealed class RecoveryTests
         var church = await directory.Save(new Church { Name = "Synthetic" }, null);
         var events = new EventService(repositories, directory, clock);
         var definition = await events.Save(new ChurchEvent { Name = "Future", LocalStart = new DateTime(2026, 9, 21, 10, 0, 0), TimeZone = "UTC" }, church.Id);
-        Assert.Equal(1, await events.Generate(church.Id, definition.Id));
+        Assert.NotNull(await events.Generate(church.Id, definition.Id));
         var occurrence = Assert.Single((await repositories.Occurrences.Search(new Query { ChurchId = church.Id })).Items);
-        var updated = await events.Override(church.Id, occurrence.Id, occurrence.StartsAt.AddHours(1), occurrence.EndsAt.AddHours(1), true, occurrence.ETag);
-        Assert.Equal(0, await events.Generate(church.Id, definition.Id));
+        var updated = await events.Override(church.Id, occurrence.Id, occurrence.StartsAt.AddHours(1), occurrence.EndsAt.AddHours(1), true, occurrence.Archived, occurrence.ETag);
+        Assert.Null(await events.Generate(church.Id, definition.Id));
         var retained = await repositories.Occurrences.Get(church.Id, occurrence.Id);
         Assert.Equal(updated, retained);
         clock.Now = updated.StartsAt;
-        await Assert.ThrowsAsync<ApiException>(() => events.Override(church.Id, occurrence.Id, clock.Now.AddDays(1), clock.Now.AddDays(1).AddHours(1), false, updated.ETag));
+        await Assert.ThrowsAsync<ApiException>(() => events.Override(church.Id, occurrence.Id, clock.Now.AddDays(1), clock.Now.AddDays(1).AddHours(1), false, updated.Archived, updated.ETag));
     }
 
     [Theory]

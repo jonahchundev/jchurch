@@ -87,4 +87,20 @@ public sealed class InMemoryRepository<T> : IRepository<T> where T : Document
             return Task.FromResult(new Page<T>(page, results.Length > query.PageSize ? Cursor.Encode<T>(query, page[^1].Id) : null));
         }
     }
+
+    public Task<IReadOnlyList<OccurrenceCheckInCount>> ActiveCheckInCounts(string churchId, string eventId, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (typeof(T) != typeof(Attendance)) throw new NotSupportedException("Check-in counts require an attendance repository.");
+        lock (gate)
+        {
+            var counts = documents.Values.OfType<Attendance>()
+                .Where(receipt => receipt.ChurchId == churchId && receipt.EventId == eventId && receipt.Active)
+                .GroupBy(receipt => receipt.OccurrenceId, StringComparer.Ordinal)
+                .Select(group => new OccurrenceCheckInCount(group.Key, group.Count()))
+                .OrderBy(count => count.OccurrenceId, StringComparer.Ordinal)
+                .ToArray();
+            return Task.FromResult<IReadOnlyList<OccurrenceCheckInCount>>(counts);
+        }
+    }
 }

@@ -39,6 +39,7 @@ const sampleSession = {
   startsAt: new Date(Date.now() + 86400000).toISOString(),
   endsAt: new Date(Date.now() + 90000000).toISOString(),
   cancelled: false,
+  archived: false,
   overridden: false,
 };
 const pageBody = (
@@ -254,6 +255,12 @@ test("group drafts survive uncertain writes without duplicate submission", async
 
 test("event navigation preserves the selected church through Home and tabs", async ({ page }) => {
   const missingPaths: string[] = [];
+  const laterSession = {
+    ...sampleSession,
+    id: "occ_later",
+    startsAt: new Date(Date.parse(sampleSession.startsAt) + 86400000).toISOString(),
+    endsAt: new Date(Date.parse(sampleSession.endsAt) + 86400000).toISOString(),
+  };
   await page.route("**/api/v1/**", async route => {
     const path = new URL(route.request().url()).pathname.replace("/api/v1", "");
     let body: unknown;
@@ -263,7 +270,13 @@ test("event navigation preserves the selected church through Home and tabs", asy
     else if (path === `/churches/${alpha.id}/events`) body = pageBody([sampleEvent]);
     else if (path === `/churches/${beta.id}/events`) body = pageBody([]);
     else if ([alpha.id, beta.id].some(churchId => ["members", "groups", "custom-fields"].some(resource => path === `/churches/${churchId}/${resource}`))) body = pageBody([]);
-    else if (path === `/churches/${alpha.id}/events/${sampleEvent.id}/occurrences`) body = pageBody([sampleSession]);
+    else if (path === `/churches/${alpha.id}/events/${sampleEvent.id}/occurrence-check-in-counts`) body = {
+      items: [
+        { occurrenceId: sampleSession.id, checkedInCount: 2 },
+        { occurrenceId: laterSession.id, checkedInCount: 5 },
+      ],
+    };
+    else if (path === `/churches/${alpha.id}/events/${sampleEvent.id}/occurrences`) body = pageBody([sampleSession, laterSession]);
     else {
       missingPaths.push(path);
       await route.fulfill({ status: 404, json: { detail: "Resource not found in this church." } });
@@ -281,7 +294,18 @@ test("event navigation preserves the selected church through Home and tabs", asy
   await page.getByRole("tab", { name: "Events", exact: true }).click();
   await expect(page.getByRole("button", { name: /Community gathering/ })).toBeVisible();
   await page.getByRole("button", { name: /Community gathering/ }).click();
-  await expect(page.getByRole("button", { name: /Ends .*UTC/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Ends .*UTC/ }).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Sessions", exact: true })).toHaveCount(0);
+  const sessionRows = page.getByRole("button").filter({ hasText: /checked in/ });
+  await expect(sessionRows).toHaveCount(2);
+  await expect(sessionRows.nth(0)).toContainText("Upcoming");
+  await expect(sessionRows.nth(0)).toContainText("2 checked in");
+  await expect(sessionRows.nth(1)).toContainText("5 checked in");
+  await expect(page.getByLabel("Date order", { exact: true })).toHaveValue("soonest");
+  await page.getByLabel("Date order", { exact: true }).selectOption("latest");
+  await expect(page.getByLabel("Date order", { exact: true })).toHaveValue("latest");
+  await expect(sessionRows.nth(0)).toContainText("5 checked in");
+  await expect(sessionRows.nth(1)).toContainText("2 checked in");
   await page.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByRole("tab", { name: "Home", exact: true }).click();
   await page.getByRole("button", { name: /Manage events/ }).click();
@@ -295,6 +319,47 @@ test("event navigation preserves the selected church through Home and tabs", asy
   await page.getByRole("tab", { name: "Check-In", exact: true }).click();
   await expect(page.getByText("No events available.", { exact: true })).toBeVisible();
   expect(missingPaths).toEqual([]);
+});
+
+test("cancelling an occurrence dismisses confirmation and shows cancelled status only", async ({ page }) => {
+  const event = { ...sampleEvent, timeZone: "America/New_York" };
+  let session = { ...sampleSession };
+  await page.route("**/api/v1/**", async route => {
+    const path = new URL(route.request().url()).pathname.replace("/api/v1", "");
+    const method = route.request().method();
+    if (path === `/churches/${alpha.id}`)
+      await route.fulfill({ json: alpha });
+    else if (path === `/churches/${alpha.id}/events`)
+      await route.fulfill({ json: pageBody([event]) });
+    else if (path === `/churches/${alpha.id}/events/${event.id}/occurrences`)
+      await route.fulfill({ json: pageBody([session]) });
+    else if (path === `/churches/${alpha.id}/events/${event.id}/occurrence-check-in-counts`)
+      await route.fulfill({ json: { items: [] } });
+    else if (path === `/churches/${alpha.id}/occurrences/${session.id}` && method === "PUT") {
+      session = {
+        ...session,
+        ...route.request().postDataJSON(),
+        overridden: true,
+        _etag: '"cancelled"',
+      };
+      await route.fulfill({ json: session });
+    } else await route.fulfill({ json: pageBody([]) });
+  });
+  await page.goto(`/church/${alpha.id}/events`);
+  await page.getByRole("button", { name: /Community gathering/ }).click();
+  const sessionRow = page.getByRole("button").filter({ hasText: /checked in/ });
+  await expect(sessionRow).toContainText("Eastern Time");
+  await sessionRow.click();
+  await page.getByRole("button", { name: "Cancel occurrence", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("Cancel this occurrence?");
+  await page.getByRole("button", { name: "Confirm cancellation", exact: true }).click();
+  await expect(page.getByText("Cancel this occurrence?", { exact: false })).toHaveCount(0);
+  await expect(page.getByText("This occurrence is cancelled and unavailable for check-in.", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(sessionRow).toContainText("Cancelled");
+  await expect(sessionRow).not.toContainText("Rescheduled");
+  await expect(sessionRow).not.toContainText("Upcoming");
+  await expect(page.getByText("Cancelled", { exact: true })).toHaveCSS("color", "rgb(175, 53, 68)");
 });
 
 test("draft protection, stale edits, pagination and church isolation", async ({
@@ -422,6 +487,8 @@ test("uncertain check-in stays pending until retry and cancelled sessions are bl
     else if (path.endsWith(`/events/${sampleEvent.id}`)) body = sampleEvent;
     else if (path.endsWith(`/occurrences/${sampleSession.id}`))
       body = { ...sampleSession, cancelled };
+    else if (path.endsWith(`/events/${sampleEvent.id}/occurrence-check-in-counts`))
+      body = { items: [] };
     else if (path.endsWith(`/events/${sampleEvent.id}/occurrences`))
       body = pageBody([{ ...sampleSession, cancelled }]);
     else if (path.endsWith("/members")) body = pageBody([jordan]);
@@ -448,12 +515,12 @@ test("uncertain check-in stays pending until retry and cancelled sessions are bl
     .getByRole("button", { name: "Begin check-in", exact: true })
     .click();
   await page
-    .getByRole("button", { name: "Check in Jordan", exact: true })
+    .getByRole("button", { name: "Check in", exact: true })
     .click();
   await expect(page.getByRole("alert")).toContainText("Confirmation pending");
   await expect(page.getByText(/^Checked in ·/)).toHaveCount(0);
   await expect(page.getByText(/^Already checked in ·/)).toHaveCount(0);
-  await page.getByRole("button", { name: "Retry Jordan", exact: true }).click();
+  await page.getByRole("button", { name: "Retry", exact: true }).click();
   await expect(page.getByText(/^Already checked in ·/)).toBeVisible();
   expect(submitted).toEqual([{ memberId: jordan.id }, { memberId: jordan.id }]);
   cancelled = true;
@@ -637,6 +704,12 @@ test("church settings, members, sessions and duplicate-safe check-in", async ({
     await page.getByRole("textbox", { name: "Subgroup name", exact: true }).fill("High School");
     await page.getByRole("button", { name: "Save subgroup", exact: true }).click();
     await expect(page.getByRole("button", { name: /High School Youth/ })).toBeVisible();
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("button", { name: /Manage custom fields/ }).click();
+    await page.getByRole("button", { name: "Add custom field", exact: true }).first().click();
+    await page.getByRole("textbox", { name: "Field name", exact: true }).fill("Emergency contact");
+    await page.getByRole("button", { name: "Save custom field", exact: true }).click();
+    await expect(page.getByRole("button", { name: /Emergency contact Text/ })).toBeVisible();
     await page.getByRole("tab", { name: "Home", exact: true }).click();
     await page.getByRole("button", { name: /Manage members/ }).click();
     await page.getByRole("button", { name: "Add member", exact: true }).click();
@@ -646,6 +719,9 @@ test("church settings, members, sessions and duplicate-safe check-in", async ({
     await page
       .getByRole("textbox", { name: "Last name", exact: true })
       .fill("Sample");
+    await page
+      .getByRole("textbox", { name: "Emergency contact", exact: true })
+      .fill("Taylor Sample");
     await page.getByLabel("Youth / High School", { exact: true }).check();
     await page
       .getByRole("button", { name: "Save member", exact: true })
@@ -671,25 +747,29 @@ test("church settings, members, sessions and duplicate-safe check-in", async ({
     await page
       .getByRole("textbox", { name: "Event name", exact: true })
       .fill("Sunday Gathering");
-    await page
-      .getByRole("textbox", { name: "Timezone", exact: true })
-      .fill("UTC");
-    await page
-      .getByRole("textbox", { name: "Local start", exact: true })
-      .fill(new Date(Date.now() - 5 * 60000).toISOString().slice(0, 16));
+    const startDate = new Date(Date.now() + 24 * 60 * 60000)
+      .toISOString()
+      .slice(0, 10);
+    const startDateInput = page.locator('input[aria-label="Start date"]');
+    const startTimeInput = page.locator('input[aria-label="Start time"]');
+    await expect(startDateInput).toHaveAttribute("type", "date");
+    await expect(startTimeInput).toHaveAttribute("type", "time");
+    await startDateInput.fill(startDate);
+    await startTimeInput.fill("09:00");
+    await page.getByLabel("Timezone", { exact: true }).selectOption("UTC");
     await page.getByRole("button", { name: "Save event", exact: true }).click();
     await expect(page.getByText("Event saved.", { exact: true })).toBeVisible();
     await page
-      .getByRole("button", { name: "Generate occurrences", exact: true })
+      .getByRole("button", { name: "Generate next occurrence", exact: true })
       .click();
     await expect(
-      page.getByText("1 sessions created.", { exact: true }),
+      page.getByText("Next session created.", { exact: true }),
     ).toBeVisible();
     await page
-      .getByRole("button", { name: "Generate occurrences", exact: true })
+      .getByRole("button", { name: "Generate next occurrence", exact: true })
       .click();
     await expect(
-      page.getByText("Sessions are already up to date.", { exact: true }),
+      page.getByText("No upcoming session needs to be created.", { exact: true }),
     ).toBeVisible();
     await page.getByRole("button", { name: /Ends .*UTC/ }).click();
     await page
@@ -702,7 +782,7 @@ test("church settings, members, sessions and duplicate-safe check-in", async ({
       .getByRole("textbox", { name: "Search members to check in" })
       .fill("Jordan");
     await page
-      .getByRole("button", { name: "Check in Jordan", exact: true })
+      .getByRole("button", { name: "Check in", exact: true })
       .click();
     await expect(page.getByText(/^Checked in ·/)).toBeVisible();
     await page.screenshot({
@@ -725,7 +805,7 @@ test("church settings, members, sessions and duplicate-safe check-in", async ({
       .getByRole("button", { name: "Begin check-in", exact: true })
       .click();
     await page
-      .getByRole("button", { name: "Check in Jordan", exact: true })
+      .getByRole("button", { name: "Check in", exact: true })
       .click();
     await expect(page.getByText(/^Already checked in ·/)).toBeVisible();
     await page.getByRole("tab", { name: "Home", exact: true }).click();

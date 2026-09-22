@@ -8,8 +8,9 @@ import { ScanInput, useScanActive } from "../ScanCode";
 import { sessionTime } from "../domain";
 import { Button, Heading, Label, Notice, styles } from "../ui";
 
-export default function ScanCheckIn({ churchId, occurrenceId, timeZone, onLocked }: {
+export default function ScanCheckIn({ churchId, eventId, occurrenceId, timeZone, onLocked }: {
   churchId: string;
+  eventId: string;
   occurrenceId: string;
   timeZone: string;
   onLocked: (locked: boolean) => void;
@@ -55,6 +56,7 @@ export default function ScanCheckIn({ churchId, occurrenceId, timeZone, onLocked
       setPending("");
       setError("");
       void client.invalidateQueries({ queryKey: [churchPath(churchId, "attendance")] });
+      void client.invalidateQueries({ queryKey: [churchPath(churchId, `events/${eventId}/occurrence-check-in-counts`)] });
     }
     async function recover() {
       const status = await api.scanStatus(churchId, occurrenceId, code, abort.signal);

@@ -49,6 +49,7 @@ public sealed record Query
 
 public sealed record Page<T>(IReadOnlyList<T> Items, string? ContinuationToken);
 public sealed record Creation<T>(T Item, bool Created);
+public sealed record OccurrenceCheckInCount(string OccurrenceId, int CheckedInCount);
 
 public interface IRepository<T> where T : Document
 {
@@ -56,6 +57,8 @@ public interface IRepository<T> where T : Document
     Task<Creation<T>> Create(T document, CancellationToken cancellationToken = default);
     Task<T> Replace(T document, string etag, CancellationToken cancellationToken = default);
     Task<Page<T>> Search(Query query, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<OccurrenceCheckInCount>> ActiveCheckInCounts(string churchId, string eventId, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("Check-in counts require an attendance repository.");
     Task<Member?> ResolveScanCode(string churchId, string code, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("Scan lookup requires a member repository.");
 }

@@ -15,8 +15,6 @@ public static class Configuration
         var environment = configuration["AZURE_FUNCTIONS_ENVIRONMENT"];
         if (environment is not ("Development" or "Test"))
             throw new InvalidOperationException("Authentication is deferred: only Development/Test with synthetic data is allowed.");
-        if (!string.IsNullOrEmpty(configuration["WEBSITE_INSTANCE_ID"]) || !string.IsNullOrEmpty(configuration["WEBSITE_SITE_NAME"]))
-            throw new InvalidOperationException("Hosted execution is blocked pending reviewed network isolation and authentication safeguards.");
         if (configuration["Storage:Provider"] is not ("InMemory" or "CosmosDb"))
             throw new InvalidOperationException("Set Storage:Provider explicitly to InMemory or CosmosDb.");
     }

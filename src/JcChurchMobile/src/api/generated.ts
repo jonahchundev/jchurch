@@ -230,8 +230,28 @@ export interface paths {
         };
         get: operations["listEventOccurrences"];
         put?: never;
-        /** @description Retry-safe generation from seven days ago through 90 days ahead. Existing overrides and cancellations are never overwritten. */
+        /** @description Creates the next missing upcoming occurrence. Existing overrides and cancellations are never overwritten. */
         post: operations["generateOccurrences"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/churches/{churchId}/events/{id}/occurrence-check-in-counts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                churchId: components["parameters"]["churchId"];
+                id: components["parameters"]["id"];
+            };
+            cookie?: never;
+        };
+        /** @description Active check-in totals for this event, grouped by occurrence. Occurrences absent from the response have zero active check-ins. */
+        get: operations["getOccurrenceCheckInCounts"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -287,7 +307,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Explicit memberId is not proof of identity. Check-in is allowed regardless of occurrence start/end times. Cancelled occurrences reject new check-ins. Repeated requests return the existing receipt. */
+        /** @description Explicit memberId is not proof of identity. Check-in is allowed regardless of occurrence start/end times. Cancelled or archived occurrences reject new check-ins. Repeated requests return the existing receipt. */
         post: operations["checkIn"];
         delete?: never;
         options?: never;
@@ -309,7 +329,8 @@ export interface paths {
         get: operations["checkInStatus"];
         put?: never;
         post?: never;
-        delete?: never;
+        /** @description Marks an active check-in as undone while retaining its audit history. Repeated calls are idempotent. */
+        delete: operations["undoCheckIn"];
         options?: never;
         head?: never;
         patch?: never;
@@ -364,7 +385,7 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** @description Ranges are [from,to), maximum 93 days. Defaults to UTC midnight 30 days ago through tomorrow. Group filters use check-in-time snapshots, not current memberships. */
+        /** @description Ranges are [from,to), maximum 93 days when supplied. Reports include active check-ins only. Group filters use check-in-time snapshots, not current memberships. */
         get: operations["reportAttendance"];
         put?: never;
         post?: never;
@@ -450,6 +471,12 @@ export interface components {
             /** Format: date-time */
             endsAt: string;
             cancelled: boolean;
+            /** @description A reversible organizational state permitted only after the occurrence ends. */
+            archived: boolean;
+        };
+        OccurrenceCheckInCount: {
+            occurrenceId: string;
+            checkedInCount: number;
         };
     };
     responses: {
@@ -1125,14 +1152,40 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Number created */
+            /** @description Created occurrence, or null when no upcoming occurrence is missing */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        created?: number;
+                        occurrence: components["schemas"]["Document"] | null;
+                    };
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getOccurrenceCheckInCounts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                churchId: components["parameters"]["churchId"];
+                id: components["parameters"]["id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Active check-in counts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["OccurrenceCheckInCount"][];
                     };
                 };
             };
@@ -1251,6 +1304,34 @@ export interface operations {
             default: components["responses"]["Problem"];
         };
     };
+    undoCheckIn: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                churchId: components["parameters"]["churchId"];
+                id: components["parameters"]["id"];
+                memberId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Undo result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        receipt: components["schemas"]["Document"];
+                        undone: boolean;
+                    };
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
     scanCheckIn: {
         parameters: {
             query?: never;
@@ -1301,6 +1382,8 @@ export interface operations {
     reportAttendance: {
         parameters: {
             query?: {
+                /** @description Case-insensitive name substring. */
+                search?: components["parameters"]["search"];
                 eventId?: components["parameters"]["eventId"];
                 occurrenceId?: components["parameters"]["occurrenceId"];
                 memberId?: components["parameters"]["memberId"];

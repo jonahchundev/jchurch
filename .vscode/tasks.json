@@ -5,15 +5,23 @@
       "label": "build functions",
       "type": "process",
       "command": "dotnet",
-      "args": ["build", "${workspaceFolder}/src/jchurchFunction/jchurchFunction.csproj"],
+      "args": [
+        "build",
+        "${workspaceFolder}/src/jchurchFunction/jchurchFunction.csproj"
+      ],
       "problemMatcher": "$msCompile",
-      "group": { "kind": "build", "isDefault": true }
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
     },
     {
       "label": "func: host start",
       "type": "shell",
       "command": "func start --dotnet-isolated-debug --address 127.0.0.1 --port 7071",
-      "options": { "cwd": "${workspaceFolder}/src/jchurchFunction" },
+      "options": {
+        "cwd": "${workspaceFolder}/src/jchurchFunction"
+      },
       "dependsOn": "build functions",
       "isBackground": true,
       "problemMatcher": "$func-dotnet-watch"
@@ -22,23 +30,114 @@
       "label": "test",
       "type": "process",
       "command": "dotnet",
-      "args": ["test", "${workspaceFolder}/tests/JChurch.Tests/JChurch.Tests.csproj"],
+      "args": [
+        "test",
+        "${workspaceFolder}/tests/JChurch.Tests/JChurch.Tests.csproj"
+      ],
       "problemMatcher": "$msCompile",
-      "group": { "kind": "test", "isDefault": true }
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      }
     },
     {
       "label": "HTTP smoke test",
       "type": "process",
       "command": "node",
-      "args": ["${workspaceFolder}/tests/http-smoke.mjs"],
+      "args": [
+        "${workspaceFolder}/tests/http-smoke.mjs"
+      ],
       "problemMatcher": []
     },
     {
       "label": "block deployment",
       "type": "process",
       "command": "node",
-      "args": ["-e", "console.error('Deployment blocked: authentication and network-isolation approval are pending.'); process.exit(1)"],
+      "args": [
+        "-e",
+        "console.error('Deployment blocked: authentication and network-isolation approval are pending.'); process.exit(1)"
+      ],
       "problemMatcher": []
+    },
+    {
+      "label": "clean (functions)",
+      "command": "dotnet",
+      "args": [
+        "clean",
+        "/property:GenerateFullPaths=true",
+        "/consoleloggerparameters:NoSummary"
+      ],
+      "type": "process",
+      "problemMatcher": "$msCompile",
+      "options": {
+        "cwd": "${workspaceFolder}/src/jchurchFunction"
+      }
+    },
+    {
+      "label": "build (functions)",
+      "command": "dotnet",
+      "args": [
+        "build",
+        "/property:GenerateFullPaths=true",
+        "/consoleloggerparameters:NoSummary"
+      ],
+      "type": "process",
+      "dependsOn": "clean (functions)",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": "$msCompile",
+      "options": {
+        "cwd": "${workspaceFolder}/src/jchurchFunction"
+      }
+    },
+    {
+      "label": "clean release (functions)",
+      "command": "dotnet",
+      "args": [
+        "clean",
+        "--configuration",
+        "Release",
+        "/property:GenerateFullPaths=true",
+        "/consoleloggerparameters:NoSummary"
+      ],
+      "type": "process",
+      "problemMatcher": "$msCompile",
+      "options": {
+        "cwd": "${workspaceFolder}/src/jchurchFunction"
+      }
+    },
+    {
+      "label": "publish (functions)",
+      "command": "dotnet",
+      "args": [
+        "publish",
+        "--configuration",
+        "Release",
+        "/property:GenerateFullPaths=true",
+        "/consoleloggerparameters:NoSummary"
+      ],
+      "type": "process",
+      "dependsOn": "clean release (functions)",
+      "problemMatcher": "$msCompile",
+      "options": {
+        "cwd": "${workspaceFolder}/src/jchurchFunction"
+      }
+    },
+    {
+      "type": "func",
+      "dependsOn": "build (functions)",
+      "options": {
+        "cwd": "${workspaceFolder}/src/jchurchFunction/bin/Debug/net10.0"
+      },
+      "command": "host start",
+      "args": [
+        "--dotnet-isolated-debug",
+        "--enable-json-output"
+      ],
+      "isBackground": true,
+      "problemMatcher": "$func-dotnet-watch"
     }
   ]
 }

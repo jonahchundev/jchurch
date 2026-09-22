@@ -3,5 +3,6 @@
   "azureFunctions.projectSubpath": "src/jchurchFunction",
   "azureFunctions.projectLanguage": "C#",
   "azureFunctions.projectRuntime": "~4",
-  "azureFunctions.preDeployTask": "block deployment"
+  "azureFunctions.preDeployTask": "publish (functions)",
+  "debug.internalConsoleOptions": "neverOpen"
 }

@@ -11,6 +11,7 @@ export type EventInput = Schemas["EventInput"];
 export type ChurchEvent = Document & EventInput;
 export type Occurrence = Document &
   Schemas["OccurrenceOverride"] & { eventId: string; overridden: boolean };
+export type OccurrenceCheckInCount = Schemas["OccurrenceCheckInCount"];
 export type Attendance = Document & {
   eventId: string;
   occurrenceId: string;

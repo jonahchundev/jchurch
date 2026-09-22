@@ -129,6 +129,11 @@ export default function ChurchLayout() {
         initialParams={{ churchId }}
         options={{ href: null }}
       />
+      <Tabs.Screen
+        name="custom-fields"
+        initialParams={{ churchId }}
+        options={{ href: null }}
+      />
     </Tabs>
   );
 }

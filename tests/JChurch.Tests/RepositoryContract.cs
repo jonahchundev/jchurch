@@ -67,5 +67,10 @@ internal static class RepositoryContract
             report = report with { ContinuationToken = page.ContinuationToken };
         } while (report.ContinuationToken is not null);
         Assert.Single(receipts);
+        await attendance.Create(receipt with { Id = "occurrence_member_b", MemberId = "member_b" });
+        var inactive = (await attendance.Get(church, receipt.Id, receipt.OccurrenceId))!;
+        await attendance.Replace(inactive with { Active = false }, inactive.ETag);
+        var counts = await attendance.ActiveCheckInCounts(church, "event");
+        Assert.Equal([new OccurrenceCheckInCount("occurrence", 1)], counts);
     }
 }

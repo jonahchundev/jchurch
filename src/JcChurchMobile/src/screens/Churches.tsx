@@ -73,12 +73,20 @@ export default function Churches({ manage = false }: { manage?: boolean }) {
         placeholder="Search churches"
       />
       {manage && selected && (
-        <Row
-          title="Manage groups"
-          subtitle="Groups and subgroups for this church"
-          icon="albums-outline"
-          onPress={() => router.navigate(`/church/${selected}/groups`)}
-        />
+        <>
+          <Row
+            title="Manage groups"
+            subtitle="Groups and subgroups for this church"
+            icon="albums-outline"
+            onPress={() => router.navigate(`/church/${selected}/groups`)}
+          />
+          <Row
+            title="Manage custom fields"
+            subtitle="Extra details collected for members"
+            icon="document-text-outline"
+            onPress={() => router.navigate(`/church/${selected}/custom-fields`)}
+          />
+        </>
       )}
       {!!notice && <Notice>{notice}</Notice>}
       <QueryState

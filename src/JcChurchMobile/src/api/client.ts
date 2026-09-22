@@ -145,6 +145,10 @@ export function createApi(
         throw error;
       }
     },
+    async undoCheckIn(churchId: string, occurrenceId: string, memberId: string) {
+      const path = `/churches/${encodeURIComponent(churchId)}/occurrences/${encodeURIComponent(occurrenceId)}/check-ins/${encodeURIComponent(memberId)}`;
+      return (await request<{ receipt: Attendance; undone: boolean }>(path, { method: "DELETE" })).data;
+    },
   };
 }
 

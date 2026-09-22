@@ -42,6 +42,35 @@ export const eventSchema = nameSchema
       });
   });
 export type EventFormValues = z.infer<typeof eventSchema>;
+export const usTimeZones = [
+  { value: "America/New_York", label: "Eastern Time (America/New_York)" },
+  { value: "America/Chicago", label: "Central Time (America/Chicago)" },
+  { value: "America/Denver", label: "Mountain Time (America/Denver)" },
+  { value: "America/Phoenix", label: "Arizona Time (America/Phoenix)" },
+  { value: "America/Los_Angeles", label: "Pacific Time (America/Los_Angeles)" },
+  { value: "America/Anchorage", label: "Alaska Time (America/Anchorage)" },
+  { value: "Pacific/Honolulu", label: "Hawaii Time (Pacific/Honolulu)" },
+  { value: "UTC", label: "UTC" },
+];
+export function timeZoneLabel(timeZone: string) {
+  return usTimeZones.find((option) => option.value === timeZone)?.label.replace(
+    / \([^)]*\)$/,
+    "",
+  ) ?? timeZone;
+}
+export function describeRecurrence(rule: string | null | undefined) {
+  if (!rule) return "One-time";
+  const frequency = /(?:^|;)FREQ=(DAILY|WEEKLY|MONTHLY|YEARLY)(?:;|$)/.exec(rule)?.[1];
+  const interval = Number(/(?:^|;)INTERVAL=(\d+)(?:;|$)/.exec(rule)?.[1] ?? "1");
+  if (!frequency || !Number.isInteger(interval) || interval < 1) return "Recurring";
+  const unit = {
+    DAILY: "day",
+    WEEKLY: "week",
+    MONTHLY: "month",
+    YEARLY: "year",
+  }[frequency];
+  return interval === 1 ? `Every ${unit}` : `Every ${interval} ${unit}s`;
+}
 const optionalText = (max: number) => z.string().max(max);
 export function normalizeScanCode(value: string): string {
   const code = value.trim();
@@ -145,6 +174,14 @@ export function sessionTime(value: string, zone: string) {
   return DateTime.fromISO(value)
     .setZone(zone)
     .toFormat("ccc, LLL d, yyyy · h:mm a");
+}
+
+export function memberAge(birthDate: string | null | undefined) {
+  if (!birthDate) return null;
+  const birth = DateTime.fromISO(birthDate);
+  if (!birth.isValid) return null;
+  const years = Math.floor(DateTime.now().diff(birth, "years").years);
+  return years >= 0 ? years : null;
 }
 
 export function attendanceRange(day: string) {

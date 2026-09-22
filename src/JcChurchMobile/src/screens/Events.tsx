@@ -7,12 +7,15 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { DateTime } from "luxon";
 import { api, churchPath, useAll, useDebounce, useList } from "../api/hooks";
 import { ApiError, message } from "../api/client";
-import type { ChurchEvent, EventInput, Occurrence } from "../api/types";
+import type { ChurchEvent, EventInput, Occurrence, OccurrenceCheckInCount } from "../api/types";
 import {
+  describeRecurrence,
   eventSchema,
   localToUtc,
   sessionTime,
+  timeZoneLabel,
   type EventFormValues,
+  usTimeZones,
 } from "../domain";
 import {
   Button,
@@ -29,7 +32,7 @@ import {
   Select,
   Sheet,
   styles,
-  Toggle,
+  TimeField,
 } from "../ui";
 
 export default function Events() {
@@ -71,7 +74,7 @@ export default function Events() {
           <Row
             key={event.id}
             title={event.name}
-            subtitle={`${event.recurrenceRule ? "Recurring" : "One-time"} · ${event.durationMinutes} min · ${event.timeZone}`}
+            subtitle={`${describeRecurrence(event.recurrenceRule)} · ${event.durationMinutes} min · ${event.timeZone}`}
             icon="calendar-outline"
             onPress={() => setEditing(event)}
           />
@@ -100,14 +103,8 @@ export default function Events() {
 function defaults(event?: ChurchEvent): EventFormValues {
   return {
     name: event?.name ?? "",
-    localStart:
-      event?.localStart.slice(0, 16) ??
-      DateTime.local()
-        .plus({ days: 1 })
-        .set({ hour: 9, minute: 0 })
-        .toFormat("yyyy-MM-dd'T'HH:mm"),
-    timeZone:
-      event?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+    localStart: event?.localStart.slice(0, 16) ?? "",
+    timeZone: event?.timeZone ?? "",
     durationMinutes: String(event?.durationMinutes ?? 60),
     recurrenceRule: event?.recurrenceRule ?? "",
   };
@@ -128,10 +125,20 @@ function EventEditor({
   const [selected, setSelected] = useState<Occurrence | null>(null);
   const [notice, setNotice] = useState("");
   const [confirmArchive, setConfirmArchive] = useState(false);
+  const [startDate, setStartDate] = useState(event?.localStart.slice(0, 10) ?? "");
+  const [startTime, setStartTime] = useState(event?.localStart.slice(11, 16) ?? "");
   const form = useForm<EventFormValues>({
     resolver: zodResolver(eventSchema),
     defaultValues: defaults(event),
   });
+  const updateStart = (date: string, time: string) => {
+    setStartDate(date);
+    setStartTime(time);
+    form.setValue("localStart", date && time ? `${date}T${time}` : "", {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+  };
   const save = useMutation({
     mutationFn: (values: EventFormValues) => {
       const input: EventInput = current
@@ -158,6 +165,8 @@ function EventEditor({
     onSuccess: async (result) => {
       setCurrent(result);
       form.reset(defaults(result));
+      setStartDate(result.localStart.slice(0, 10));
+      setStartTime(result.localStart.slice(11, 16));
       setNotice("Event saved.");
       await client.invalidateQueries({
         queryKey: [churchPath(churchId, "events")],
@@ -188,16 +197,12 @@ function EventEditor({
   });
   const generate = useMutation({
     mutationFn: () =>
-      api.request<{ created: number }>(
+      api.request<{ occurrence: Occurrence | null }>(
         churchPath(churchId, `events/${current!.id}/occurrences`),
         { method: "POST" },
       ),
     onSuccess: async (result) => {
-      setNotice(
-        result.data.created
-          ? `${result.data.created} sessions created.`
-          : "Sessions are already up to date.",
-      );
+      setNotice(result.data.occurrence ? "Next session created." : "No upcoming session needs to be created.");
       await client.invalidateQueries({
         queryKey: [churchPath(churchId, `events/${current!.id}/occurrences`)],
       });
@@ -252,28 +257,37 @@ function EventEditor({
           control={form.control}
           name="localStart"
           render={({ field, fieldState }) => (
-            <DateField
-              label="Local start"
-              value={field.value}
-              onChange={field.onChange}
-              error={fieldState.error?.message}
-              time
-              disabled={!!current || busy}
-            />
+            <>
+              <DateField
+                label="Start date"
+                value={startDate}
+                onChange={(date) => updateStart(date, startTime)}
+                error={fieldState.error?.message}
+                disabled={!!current || busy}
+              />
+              <TimeField
+                label="Start time"
+                value={startTime}
+                onChange={(time) => updateStart(startDate, time)}
+                error={fieldState.error?.message}
+                disabled={!!current || busy}
+              />
+            </>
           )}
         />
         <Controller
           control={form.control}
           name="timeZone"
           render={({ field, fieldState }) => (
-            <Field
+            <Select
               label="Timezone"
               value={field.value}
-              onChangeText={field.onChange}
-              autoCapitalize="none"
-              placeholder="America/New_York"
-              error={fieldState.error?.message}
-              editable={!current && !busy}
+              onChange={field.onChange}
+              disabled={!!current || busy}
+              options={[
+                { value: "", label: "Choose a timezone" },
+                ...usTimeZones,
+              ]}
             />
           )}
         />
@@ -298,7 +312,7 @@ function EventEditor({
             current ? (
               <Field
                 label="Recurrence"
-                value={field.value || "One-time"}
+                value={describeRecurrence(field.value || null)}
                 editable={false}
               />
             ) : (
@@ -348,15 +362,13 @@ function EventEditor({
         </Button>
         {current && (
           <>
-            <Heading>Sessions</Heading>
-            <Label muted>{current.timeZone}</Label>
             <Button
               icon="add-circle-outline"
               busy={generate.isPending}
               disabled={busy || !current.active}
               onPress={() => generate.mutate()}
             >
-              Generate occurrences
+              Generate next occurrence
             </Button>
             <SessionList
               churchId={churchId}
@@ -416,21 +428,42 @@ export function SessionList({
   checkIn?: boolean;
 }) {
   const [range, setRange] = useState("upcoming");
+  const [dateOrder, setDateOrder] = useState("soonest");
   const query = useAll<Occurrence>(
     churchPath(churchId, `events/${event.id}/occurrences`),
+  );
+  const counts = useAll<OccurrenceCheckInCount>(
+    churchPath(churchId, `events/${event.id}/occurrence-check-in-counts`),
   );
   const today = DateTime.now()
     .setZone(event.timeZone)
     .startOf("day")
     .toMillis();
+  const countByOccurrence = new Map(
+    (counts.data ?? []).map((count) => [count.occurrenceId, count.checkedInCount]),
+  );
   const sessions = [...(query.data ?? [])]
     .filter(
-      (session) => range === "all" || Date.parse(session.startsAt) >= today,
+      (session) =>
+        (!checkIn || (!session.cancelled && !session.archived)) &&
+        (range === "all" || Date.parse(session.startsAt) >= today),
     )
     .sort(
       (first, second) =>
-        Date.parse(first.startsAt) - Date.parse(second.startsAt),
+        (Date.parse(first.startsAt) - Date.parse(second.startsAt)) *
+        (dateOrder === "soonest" ? 1 : -1),
     );
+  const status = (session: Occurrence) => {
+    if (session.cancelled) return { label: "Cancelled", tone: "danger" as const };
+    const startsAt = DateTime.fromISO(session.startsAt).setZone(event.timeZone);
+    const now = DateTime.now().setZone(event.timeZone);
+    const labels = [
+      session.archived ? "Archived" : "",
+      session.overridden ? "Rescheduled" : "",
+      startsAt.hasSame(now, "day") ? "Today" : Date.parse(session.endsAt) <= Date.now() ? "Past" : "Upcoming",
+    ].filter(Boolean);
+    return { label: labels.join(" · "), tone: "default" as const };
+  };
   return (
     <View style={styles.stack}>
       <Select
@@ -442,33 +475,40 @@ export function SessionList({
           { value: "all", label: "All dates" },
         ]}
       />
+      <Select
+        label="Date order"
+        value={dateOrder}
+        onChange={setDateOrder}
+        options={[
+          { value: "soonest", label: "Soonest first" },
+          { value: "latest", label: "Latest first" },
+        ]}
+      />
       <QueryState
-        pending={query.isPending}
-        error={query.error}
+        pending={query.isPending || counts.isPending}
+        error={query.error ?? counts.error}
         empty={!sessions.length}
         emptyText="No sessions in this range."
         onRetry={() => void query.refetch()}
       />
       <View>
-        {sessions.map((session) => (
-          <Row
-            key={session.id}
-            title={sessionTime(session.startsAt, event.timeZone)}
-            subtitle={`Ends ${DateTime.fromISO(session.endsAt).setZone(event.timeZone).toFormat("h:mm a")} · ${event.timeZone}`}
-            badge={
-              session.cancelled
-                ? "Cancelled"
-                : session.overridden
-                  ? "Rescheduled"
-                  : undefined
-            }
-            icon="calendar-number-outline"
-            disabled={
-              disabled || (checkIn && (session.cancelled || !event.active))
-            }
-            onPress={() => onSelect(session)}
-          />
-        ))}
+        {sessions.map((session) => {
+          const sessionStatus = status(session);
+          return (
+            <Row
+              key={session.id}
+              title={sessionTime(session.startsAt, event.timeZone)}
+              subtitle={`Ends ${DateTime.fromISO(session.endsAt).setZone(event.timeZone).toFormat("h:mm a")} · ${timeZoneLabel(event.timeZone)} · ${countByOccurrence.get(session.id) ?? 0} checked in`}
+              badge={sessionStatus.label}
+              badgeTone={sessionStatus.tone}
+              icon="calendar-number-outline"
+              disabled={
+                disabled || (checkIn && (session.cancelled || session.archived || !event.active))
+              }
+              onPress={() => onSelect(session)}
+            />
+          );
+        })}
       </View>
     </View>
   );
@@ -487,6 +527,8 @@ function SessionEditor({
 }) {
   const client = useQueryClient();
   const [current, setCurrent] = useState(occurrence);
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const [confirmArchive, setConfirmArchive] = useState(false);
   const initial = (session: Occurrence) => ({
     startsAt: DateTime.fromISO(session.startsAt)
       .setZone(event.timeZone)
@@ -495,6 +537,7 @@ function SessionEditor({
       .setZone(event.timeZone)
       .toFormat("yyyy-MM-dd'T'HH:mm"),
     cancelled: session.cancelled,
+    archived: session.archived,
   });
   const form = useForm({ defaultValues: initial(occurrence) });
   const editable = Date.parse(current.startsAt) > Date.now() && event.active;
@@ -513,17 +556,39 @@ function SessionEditor({
         );
       return api.save<Occurrence>(
         churchPath(event.churchId, `occurrences/${current.id}`),
-        { startsAt, endsAt, cancelled: values.cancelled },
+        { startsAt, endsAt, cancelled: values.cancelled, archived: values.archived },
         current._etag,
       );
     },
     onSuccess: async (result) => {
       setCurrent(result);
       form.reset(initial(result));
+      setConfirmCancel(false);
       await client.invalidateQueries({
         queryKey: [
           churchPath(event.churchId, `events/${event.id}/occurrences`),
         ],
+      });
+    },
+  });
+  const archive = useMutation({
+    mutationFn: (archived: boolean) =>
+      api.save<Occurrence>(
+        churchPath(event.churchId, `occurrences/${current.id}`),
+        {
+          startsAt: current.startsAt,
+          endsAt: current.endsAt,
+          cancelled: current.cancelled,
+          archived,
+        },
+        current._etag,
+      ),
+    onSuccess: async (result) => {
+      setCurrent(result);
+      form.reset(initial(result));
+      setConfirmArchive(false);
+      await client.invalidateQueries({
+        queryKey: [churchPath(event.churchId, `events/${event.id}/occurrences`)],
       });
     },
   });
@@ -538,12 +603,14 @@ function SessionEditor({
       save.reset();
     },
   });
-  const stale = save.error instanceof ApiError && save.error.status === 412;
+  const mutationError = save.error ?? archive.error;
+  const stale = mutationError instanceof ApiError && mutationError.status === 412;
+  const completed = Date.parse(current.endsAt) <= Date.now();
   return (
     <Sheet
       title="Session details"
       dirty={form.formState.isDirty}
-      busy={save.isPending || reload.isPending}
+      busy={save.isPending || archive.isPending || reload.isPending}
       onClose={onClose}
     >
       <View style={styles.stack}>
@@ -575,20 +642,10 @@ function SessionEditor({
             />
           )}
         />
-        <Controller
-          control={form.control}
-          name="cancelled"
-          render={({ field }) => (
-            <Toggle
-              label="Cancelled"
-              value={field.value}
-              onChange={field.onChange}
-              disabled={!editable || save.isPending}
-            />
-          )}
-        />
-        {(save.error || reload.error) && (
-          <Notice error>{message(save.error ?? reload.error)}</Notice>
+        {current.cancelled && <Notice>This occurrence is cancelled and unavailable for check-in.</Notice>}
+        {current.archived && <Notice>This occurrence is archived and unavailable for check-in.</Notice>}
+        {(save.error || archive.error || reload.error) && (
+          <Notice error>{message(save.error ?? archive.error ?? reload.error)}</Notice>
         )}
         {stale && (
           <>
@@ -605,7 +662,7 @@ function SessionEditor({
           </>
         )}
         {save.isSuccess && <Notice>Session saved.</Notice>}
-        {editable && (
+        {editable && !current.archived && (
           <Button
             icon="save-outline"
             busy={save.isPending}
@@ -617,10 +674,73 @@ function SessionEditor({
             Save session
           </Button>
         )}
+        {editable && current.cancelled && (
+          <Button
+            secondary
+            busy={save.isPending}
+            disabled={reload.isPending || stale}
+            onPress={() => save.mutate({ ...form.getValues(), cancelled: false })}
+          >
+            Restore occurrence
+          </Button>
+        )}
+        {editable && !current.cancelled && !confirmCancel && (
+          <Button
+            danger
+            icon="close-circle-outline"
+            disabled={save.isPending || reload.isPending || stale || form.formState.isDirty}
+            onPress={() => setConfirmCancel(true)}
+          >
+            Cancel occurrence
+          </Button>
+        )}
+        {confirmCancel && (
+          <>
+            <Notice error>Cancel this occurrence? New check-ins will be blocked, while existing attendance history is retained.</Notice>
+            <Button
+              danger
+              busy={save.isPending}
+              disabled={reload.isPending || stale}
+              onPress={() => save.mutate({ ...form.getValues(), cancelled: true })}
+            >
+              Confirm cancellation
+            </Button>
+            <Button secondary disabled={save.isPending} onPress={() => setConfirmCancel(false)}>
+              Keep occurrence
+            </Button>
+          </>
+        )}
+        {completed && !current.archived && !confirmArchive && (
+          <Button
+            danger
+            icon="archive-outline"
+            disabled={save.isPending || archive.isPending || reload.isPending || stale || form.formState.isDirty}
+            onPress={() => setConfirmArchive(true)}
+          >
+            Archive session
+          </Button>
+        )}
+        {confirmArchive && (
+          <>
+            <Notice error>Archive this completed session? It will remain in history but cannot be used for check-in.</Notice>
+            <Button danger busy={archive.isPending} disabled={reload.isPending || stale} onPress={() => archive.mutate(true)}>
+              Confirm archive
+            </Button>
+            <Button secondary disabled={archive.isPending} onPress={() => setConfirmArchive(false)}>
+              Keep session
+            </Button>
+          </>
+        )}
+        {completed && current.archived && (
+          <Button secondary busy={archive.isPending} disabled={reload.isPending || stale} onPress={() => archive.mutate(false)}>
+            Restore archived session
+          </Button>
+        )}
         <Button
           icon="checkmark-circle-outline"
           disabled={
             current.cancelled ||
+            current.archived ||
             !event.active ||
             form.formState.isDirty ||
             save.isPending ||

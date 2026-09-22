@@ -65,6 +65,7 @@ public sealed record Occurrence : Document
     public DateTimeOffset StartsAt { get; init; }
     public DateTimeOffset EndsAt { get; init; }
     public bool Cancelled { get; init; }
+    public bool Archived { get; init; }
     public bool Overridden { get; init; }
 }
 
@@ -76,6 +77,13 @@ public sealed record Attendance : Document
     public DateTimeOffset CheckedInAt { get; init; }
     public string[] GroupIds { get; init; } = [];
     public string[] InclusiveGroupIds { get; init; } = [];
+    public AttendanceAuditEntry[] Audit { get; init; } = [];
+}
+
+public sealed record AttendanceAuditEntry
+{
+    public string Action { get; init; } = "checked_in";
+    public DateTimeOffset OccurredAt { get; init; }
 }
 
 public sealed class ApiException(int status, string code, string message) : Exception(message)

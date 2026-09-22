@@ -1,7 +1,10 @@
 import {
+  createElement,
   useEffect,
   useState,
+  type ChangeEvent,
   type ComponentProps,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import {
@@ -242,6 +245,7 @@ export function Row({
   onPress,
   icon = "chevron-forward",
   badge,
+  badgeTone = "default",
   trailing,
   disabled = false,
 }: {
@@ -250,6 +254,7 @@ export function Row({
   onPress?: () => void;
   icon?: IconName;
   badge?: string;
+  badgeTone?: "default" | "danger";
   trailing?: ReactNode;
   disabled?: boolean;
 }) {
@@ -265,7 +270,11 @@ export function Row({
             {subtitle}
           </Label>
         )}
-        {!!badge && <Text style={styles.badge}>{badge}</Text>}
+        {!!badge && (
+          <Text style={[styles.badge, badgeTone === "danger" && styles.badgeDanger]}>
+            {badge}
+          </Text>
+        )}
       </View>
       {trailing ??
         (onPress && (
@@ -492,6 +501,49 @@ export function ViewTabs({
     </View>
   );
 }
+function WebPickerField({
+  label,
+  type,
+  value,
+  onChange,
+  error,
+  disabled,
+}: {
+  label: string;
+  type: "date" | "datetime-local" | "time";
+  value: string;
+  onChange: (value: string) => void;
+  error?: string;
+  disabled: boolean;
+}) {
+  const inputStyle: CSSProperties = {
+    boxSizing: "border-box",
+    width: "100%",
+    minHeight: 48,
+    border: `1px solid ${error ? colors.danger : colors.line}`,
+    borderRadius: 8,
+    padding: 12,
+    backgroundColor: disabled ? colors.background : colors.paper,
+    color: colors.ink,
+    fontFamily: "Manrope_400Regular",
+    fontSize: 16,
+  };
+  return (
+    <View style={styles.field}>
+      <Label small>{label}</Label>
+      {createElement("input", {
+        "aria-label": label,
+        disabled,
+        onChange: (event: ChangeEvent<HTMLInputElement>) =>
+          onChange(event.currentTarget.value),
+        style: inputStyle,
+        type,
+        value,
+      })}
+      {!!error && <Text style={styles.error}>{error}</Text>}
+    </View>
+  );
+}
 export function DateField({
   label,
   value,
@@ -508,14 +560,18 @@ export function DateField({
   disabled?: boolean;
 }) {
   const [mode, setMode] = useState<"date" | "time" | null>(null);
+  const displayDate = (input: string) => {
+    const parsed = DateTime.fromISO(input);
+    return parsed.isValid ? parsed.toFormat("M/d/yyyy") : input;
+  };
   if (Platform.OS === "web")
     return (
-      <Field
+      <WebPickerField
         label={label}
+        type={time ? "datetime-local" : "date"}
         value={value}
-        editable={!disabled}
-        onChangeText={onChange}
-        placeholder={time ? "YYYY-MM-DDTHH:mm" : "YYYY-MM-DD"}
+        onChange={onChange}
+        disabled={disabled}
         error={error}
       />
     );
@@ -531,7 +587,7 @@ export function DateField({
           icon="calendar-outline"
           onPress={() => setMode("date")}
         >
-          {value ? value.slice(0, 10) : "Choose date"}
+          {value ? displayDate(value) : "Choose date"}
         </Button>
         {time && (
           <Button
@@ -564,6 +620,59 @@ export function DateField({
                   time ? "yyyy-MM-dd'T'HH:mm" : "yyyy-MM-dd",
                 ),
               );
+          }}
+        />
+      )}
+      {!!error && <Text style={styles.error}>{error}</Text>}
+    </View>
+  );
+}
+export function TimeField({
+  label,
+  value,
+  onChange,
+  error,
+  disabled = false,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  error?: string;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const parsed = DateTime.fromFormat(value, "HH:mm");
+  const display = parsed.isValid ? parsed.toFormat("h:mm a") : value;
+  if (Platform.OS === "web")
+    return (
+      <WebPickerField
+        label={label}
+        type="time"
+        value={value}
+        onChange={onChange}
+        disabled={disabled}
+        error={error}
+      />
+    );
+  return (
+    <View style={styles.field}>
+      <Label small>{label}</Label>
+      <Button
+        secondary
+        disabled={disabled}
+        icon="time-outline"
+        onPress={() => setOpen(true)}
+      >
+        {parsed.isValid ? display : "Choose time"}
+      </Button>
+      {open && (
+        <DateTimePicker
+          value={parsed.isValid ? parsed.toJSDate() : new Date()}
+          mode="time"
+          onChange={(event, selected) => {
+            setOpen(false);
+            if (event.type === "set" && selected)
+              onChange(DateTime.fromJSDate(selected).toFormat("HH:mm"));
           }}
         />
       )}
@@ -764,6 +873,7 @@ export const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.primary,
   },
+  badgeDanger: { color: colors.danger },
   notice: {
     flexDirection: "row",
     alignItems: "flex-start",
