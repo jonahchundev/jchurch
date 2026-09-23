@@ -1,8 +1,41 @@
 import { describe, expect, it, vi } from "vitest";
+import {
+  getWebProxyTarget,
+  proxyRequestPath,
+  selectApiBaseUrl,
+} from "../src/api/api-url";
 import { ApiError, createApi, queryString } from "../src/api/client";
 import { attendanceRange, describeRecurrence, localToUtc, memberSchema, normalizeScanCode, timeZoneLabel } from "../src/domain";
 
 describe("API contracts", () => {
+  it("selects arbitrary platform API bases and preserves web paths", () => {
+    expect(selectApiBaseUrl("web", {})).toBe("/api/v1");
+    expect(
+      selectApiBaseUrl("ios", { ios: "http://localhost:7072/api/v2/" }),
+    ).toBe("http://localhost:7072/api/v2");
+    expect(
+      selectApiBaseUrl("android", {
+        android: "http://10.0.2.2:7073/church-api/",
+      }),
+    ).toBe("http://10.0.2.2:7073/church-api");
+    expect(
+      proxyRequestPath(
+        "/api/v1/churches?active=true",
+        getWebProxyTarget("http://localhost:7072"),
+      ),
+    ).toBe("/churches?active=true");
+    expect(
+      proxyRequestPath(
+        "/api/v1/churches?active=true",
+        getWebProxyTarget("http://localhost:7072/api/v2/"),
+      ),
+    ).toBe("/api/v2/churches?active=true");
+  });
+  it("rejects unsupported API base URLs", () => {
+    expect(() => getWebProxyTarget("ftp://localhost:7071")).toThrow(
+      "must use http or https",
+    );
+  });
   it("submits scan codes only in request bodies and never retries automatically", async () => {
     const fetcher = vi.fn().mockResolvedValue(new Response('{"detail":"Unknown"}', { status: 404 }));
     await expect(createApi("", fetcher).scanCheckIn("church", "session", "0000-CODE")).rejects.toMatchObject({ status: 404 });

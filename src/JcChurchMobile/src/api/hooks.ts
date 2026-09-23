@@ -1,16 +1,15 @@
 import { useEffect, useState } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Platform } from "react-native";
+import { selectApiBaseUrl } from "./api-url";
 import { createApi } from "./client";
 import type { Filters } from "./types";
 
 export const api = createApi(
-  process.env.EXPO_PUBLIC_API_URL ??
-    (Platform.OS === "web"
-      ? "/api/v1"
-      : Platform.OS === "android"
-        ? "http://10.0.2.2:7071/api/v1"
-        : "http://127.0.0.1:7071/api/v1"),
+  selectApiBaseUrl(Platform.OS, {
+    android: process.env.EXPO_PUBLIC_API_URL_ANDROID,
+    ios: process.env.EXPO_PUBLIC_API_URL_IOS,
+  }),
 );
 export const churchPath = (churchId: string, resource = "") =>
   `/churches/${encodeURIComponent(churchId)}${resource ? `/${resource}` : ""}`;
