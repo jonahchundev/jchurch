@@ -161,6 +161,17 @@ resource web 'Microsoft.Web/staticSites@2022-09-01' = {
   }
 }
 
+resource appCors 'Microsoft.Web/sites/config@2024-04-01' = {
+  parent: app
+  name: 'web'
+  properties: {
+    cors: {
+      allowedOrigins: ['https://${web.properties.defaultHostname}']
+      supportCredentials: false
+    }
+  }
+}
+
 resource cosmosAccess 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments@2024-11-15' = {
   parent: cosmos
   name: guid(cosmos.id, app.id, 'data-contributor')

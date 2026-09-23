@@ -9,7 +9,8 @@ export const api = createApi(
   selectApiBaseUrl(Platform.OS, {
     android: process.env.EXPO_PUBLIC_API_URL_ANDROID,
     ios: process.env.EXPO_PUBLIC_API_URL_IOS,
-  }),
+    web: process.env.EXPO_PUBLIC_API_URL_WEB,
+  }, process.env.NODE_ENV !== "production"),
 );
 export const churchPath = (churchId: string, resource = "") =>
   `/churches/${encodeURIComponent(churchId)}${resource ? `/${resource}` : ""}`;

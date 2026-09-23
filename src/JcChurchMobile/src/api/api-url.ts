@@ -23,9 +23,16 @@ function normalizeApiUrl(value: string, name: string) {
 
 export function selectApiBaseUrl(
 	platform: string,
-	urls: { android?: string; ios?: string },
+	urls: { android?: string; ios?: string; web?: string },
+	useWebProxy = true,
 ) {
-	if (platform === "web") return webProxyPath;
+	if (platform === "web") {
+		if (useWebProxy) return webProxyPath;
+		return normalizeApiUrl(
+			urls.web ?? defaults.web,
+			"EXPO_PUBLIC_API_URL_WEB",
+		).toString().replace(/\/$/, "");
+	}
 	if (platform === "android")
 		return normalizeApiUrl(
 			urls.android ?? defaults.android,

@@ -11,6 +11,13 @@ describe("API contracts", () => {
   it("selects arbitrary platform API bases and preserves web paths", () => {
     expect(selectApiBaseUrl("web", {})).toBe("/api/v1");
     expect(
+      selectApiBaseUrl(
+        "web",
+        { web: "https://api.example.com/api/v2/" },
+        false,
+      ),
+    ).toBe("https://api.example.com/api/v2");
+    expect(
       selectApiBaseUrl("ios", { ios: "http://localhost:7072/api/v2/" }),
     ).toBe("http://localhost:7072/api/v2");
     expect(

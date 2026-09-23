@@ -15,7 +15,7 @@ npm ci
 npm run web
 ```
 
-Open <http://localhost:8081>. Keep the existing API running on `127.0.0.1:7071`. The Metro development proxy forwards `/api/v1/` to the base configured by `EXPO_PUBLIC_API_URL_WEB`, avoiding browser CORS changes. It is not included in exported builds. When 8081 is occupied, use `npm run web -- --port 8082` and adjust the Playwright base URL if running tests there.
+Open <http://localhost:8081>. Keep the existing API running on `127.0.0.1:7071`. The Metro development proxy forwards `/api/v1/` to the base configured by `EXPO_PUBLIC_API_URL_WEB`, avoiding browser CORS changes. It is not included in exported builds. Exported web builds call `EXPO_PUBLIC_API_URL_WEB` directly and require the Function App to allow the Static Web App origin through CORS. When 8081 is occupied, use `npm run web -- --port 8082` and adjust the Playwright base URL if running tests there.
 
 For native development:
 
@@ -34,7 +34,7 @@ iOS requires Xcode, its command-line tools, and an installed simulator. Android 
 | iOS simulator | `EXPO_PUBLIC_API_URL_IOS` | `http://127.0.0.1:7071/api/v1` |
 | Android emulator | `EXPO_PUBLIC_API_URL_ANDROID` | `http://10.0.2.2:7071/api/v1` |
 
-Set each value to a complete HTTP(S) API base, with or without a path prefix. `/api/v1`, `/api/v2`, and custom paths are all valid; the local Functions defaults use `/api/v1`. The web client keeps browser requests at `/api/v1` and Metro proxies the remaining resource path to `EXPO_PUBLIC_API_URL_WEB`, avoiding a browser CORS boundary. iOS and Android call their selected URL directly. Restart Metro after changing environment values. Public Expo environment values are bundled into the client and must never contain secrets.
+Set each value to a complete HTTP(S) API base, with or without a path prefix. `/api/v1`, `/api/v2`, and custom paths are all valid; the local Functions defaults use `/api/v1`. Local web development keeps browser requests at `/api/v1` and Metro proxies the remaining resource path to `EXPO_PUBLIC_API_URL_WEB`. Exported web builds call `EXPO_PUBLIC_API_URL_WEB` directly, so set it before `npm run export:web` and configure the Function App CORS origin. iOS and Android call their selected URL directly. Restart Metro after changing environment values. Public Expo environment values are bundled into the client and must never contain secrets.
 
 Physical phones cannot use the computer's localhost address. Testing on physical phones requires an explicitly approved, network-restricted development endpoint and connectivity arrangement. Do not expose the anonymous API publicly or relax its guards to make a phone connection work. Release builds require an approved HTTPS API.
 
