@@ -5,7 +5,7 @@ import {
   selectApiBaseUrl,
 } from "../src/api/api-url";
 import { ApiError, createApi, queryString } from "../src/api/client";
-import { attendanceRange, describeRecurrence, localToUtc, memberSchema, normalizeScanCode, timeZoneLabel } from "../src/domain";
+import { attendanceRange, describeRecurrence, localToUtc, memberInput, memberSchema, normalizeScanCode, timeZoneLabel } from "../src/domain";
 
 describe("API contracts", () => {
   it("selects arbitrary platform API bases and preserves web paths", () => {
@@ -156,6 +156,62 @@ describe("dates and validation", () => {
   it("rejects missing names", () => {
     expect(memberSchema.safeParse({}).success).toBe(false);
   });
+  it("requires child guardian contact details and limits other relationships", () => {
+    const base = {
+      memberType: "child" as const,
+      allergyDetail: "",
+      firstName: "Child",
+      lastName: "Test",
+      middleName: "",
+      school: "",
+      phone: "",
+      email: "",
+      birthDate: "",
+      groupIds: [],
+      customFields: {},
+      guardian1: {
+        firstName: "Maria",
+        middleName: "",
+        lastName: "Test",
+        relationship: "Others" as const,
+        otherRelationship: "x".repeat(50),
+        phone: "555-0100",
+        email: "maria@example.com",
+      },
+    };
+    expect(memberSchema.safeParse(base).success).toBe(true);
+    expect(memberSchema.safeParse({ ...base, guardian1: { ...base.guardian1, phone: "" } }).success).toBe(false);
+    expect(memberSchema.safeParse({ ...base, guardian1: { ...base.guardian1, otherRelationship: "x".repeat(51) } }).success).toBe(false);
+  });
+  it("clears stale child-only fields from adult payloads", () => {
+    const values = {
+      memberType: "adult" as const,
+      allergyDetail: "",
+      firstName: "Adult",
+      lastName: "Member",
+      middleName: "",
+      school: "Old school",
+      phone: "",
+      email: "",
+      birthDate: "",
+      groupIds: [],
+      customFields: {},
+      guardian1: {
+        firstName: "Old",
+        middleName: "",
+        lastName: "Guardian",
+        relationship: "Mother" as const,
+        otherRelationship: "",
+        phone: "555-0100",
+        email: "old@example.com",
+      },
+    };
+    const parsed = memberSchema.parse(values);
+    const input = memberInput(parsed, []);
+    expect(input.school).toBeNull();
+    expect(input.guardian1).toBeUndefined();
+    expect(input.guardian2).toBeUndefined();
+  });
   it("converts an event wall time in its timezone", () => {
     expect(localToUtc("2026-09-20T09:00", "America/New_York")).toBe(
       "2026-09-20T13:00:00.000Z",
@@ -164,6 +220,10 @@ describe("dates and validation", () => {
   it("rejects DST gaps and ambiguous times", () => {
     expect(() => localToUtc("2026-03-08T02:30", "America/New_York")).toThrow();
     expect(() => localToUtc("2026-11-01T01:30", "America/New_York")).toThrow();
+  });
+  it("accepts picker-shaped local date/time values in configured timezones", () => {
+    for (const zone of ["UTC", "America/New_York", "America/Chicago", "America/Denver", "America/Phoenix", "America/Los_Angeles", "America/Anchorage", "Pacific/Honolulu"])
+      expect(localToUtc(" 2026-09-24T10:00:00 ", ` ${zone} `)).toMatch(/2026-09-24T/);
   });
   it("uses explicit check-in-time UTC ranges, including future dates", () => {
     expect(attendanceRange("2027-01-10")).toEqual({

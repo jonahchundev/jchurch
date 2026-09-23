@@ -484,6 +484,7 @@ test("uncertain check-in stays pending until retry and cancelled sessions are bl
     const path = new URL(route.request().url()).pathname.replace("/api/v1", "");
     let body: unknown = pageBody([]);
     if (path === `/churches/${alpha.id}`) body = alpha;
+    else if (path === `/churches/${alpha.id}/events`) body = pageBody([sampleEvent]);
     else if (path.endsWith(`/events/${sampleEvent.id}`)) body = sampleEvent;
     else if (path.endsWith(`/occurrences/${sampleSession.id}`))
       body = { ...sampleSession, cancelled };
@@ -529,6 +530,81 @@ test("uncertain check-in stays pending until retry and cancelled sessions are bl
   await expect(
     page.getByRole("button", { name: "Begin check-in", exact: true }),
   ).toBeDisabled();
+});
+
+test("closing a session editor returns to active check-in", async ({ page }) => {
+  await page.route("**/api/v1/**", async (route) => {
+    const path = new URL(route.request().url()).pathname.replace("/api/v1", "");
+    let body: unknown = pageBody([]);
+    if (path === `/churches/${alpha.id}`) body = alpha;
+    else if (path === `/churches/${alpha.id}/events`) body = pageBody([sampleEvent]);
+    else if (path.endsWith(`/events/${sampleEvent.id}`)) body = sampleEvent;
+    else if (path.endsWith(`/occurrences/${sampleSession.id}`)) body = sampleSession;
+    else if (path.endsWith(`/events/${sampleEvent.id}/occurrence-check-in-counts`))
+      body = { items: [] };
+    else if (path.endsWith(`/events/${sampleEvent.id}/occurrences`))
+      body = pageBody([sampleSession]);
+    else if (path.endsWith("/members")) body = pageBody([jordan]);
+    else if (path.endsWith(`/check-ins/${jordan.id}`))
+      body = { checkedIn: false, receipt: null };
+    await route.fulfill({ json: body });
+  });
+  await page.goto(
+    `/church/${alpha.id}/check-in?eventId=${sampleEvent.id}&occurrenceId=${sampleSession.id}`,
+  );
+  await page.getByRole("button", { name: "Begin check-in", exact: true }).click();
+  await page.getByRole("button", { name: "Edit session", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Session details", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Session details", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Edit session", exact: true })).toBeVisible();
+});
+
+test("session groups can be changed from session details", async ({ page }) => {
+  const adults = { ...metadata("group_adults", alpha.id), name: "Adults", parentGroupId: null };
+  let session = {
+    ...sampleSession,
+    startsAt: new Date(Date.now() - 15 * 60000).toISOString(),
+    endsAt: new Date(Date.now() + 45 * 60000).toISOString(),
+    groupIds: [] as string[],
+  };
+  const writes: unknown[] = [];
+  await page.route("**/api/v1/**", async (route) => {
+    const path = new URL(route.request().url()).pathname.replace("/api/v1", "");
+    const method = route.request().method();
+    let body: unknown = pageBody([]);
+    if (path === `/churches/${alpha.id}`) body = alpha;
+    else if (path === `/churches/${alpha.id}/events`) body = pageBody([sampleEvent]);
+    else if (path.endsWith(`/events/${sampleEvent.id}`)) body = sampleEvent;
+    else if (path === `/churches/${alpha.id}/groups`) body = pageBody([adults]);
+    else if (path.endsWith(`/occurrences/${sampleSession.id}`)) {
+      if (method === "PUT") {
+        const input = route.request().postDataJSON();
+        writes.push(input);
+        session = { ...session, ...input, _etag: '"groups-saved"' };
+      }
+      body = session;
+    } else if (path.endsWith(`/events/${sampleEvent.id}/occurrence-check-in-counts`))
+      body = { items: [] };
+    else if (path.endsWith(`/events/${sampleEvent.id}/occurrences`))
+      body = pageBody([session]);
+    else if (path.endsWith("/members")) body = pageBody([jordan]);
+    else if (path.endsWith(`/check-ins/${jordan.id}`))
+      body = { checkedIn: false, receipt: null };
+    await route.fulfill({ json: body });
+  });
+  await page.goto(
+    `/church/${alpha.id}/check-in?eventId=${sampleEvent.id}&occurrenceId=${sampleSession.id}`,
+  );
+  await page.getByRole("button", { name: "Begin check-in", exact: true }).click();
+  await page.getByRole("button", { name: "Edit session", exact: true }).click();
+  await page.getByLabel("Adults", { exact: true }).click();
+  await page.getByRole("button", { name: "Save session", exact: true }).click();
+  await expect(page.getByText("Session saved.", { exact: true })).toBeVisible();
+  expect(writes).toHaveLength(1);
+  expect(writes[0]).toMatchObject({ groupIds: [adults.id] });
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(page.getByText("Groups: Adults", { exact: true })).toBeVisible();
 });
 
 test("member scan code reissue saves only after confirmation and renders the persisted card", async ({ page }, testInfo) => {

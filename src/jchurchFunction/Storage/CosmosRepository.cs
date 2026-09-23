@@ -199,6 +199,12 @@ public sealed class CosmosRepository<T>(CosmosClient client, CosmosSettings sett
             var field = query.IncludeSubgroups && typeof(T) == typeof(Attendance) ? "inclusiveGroupIds" : "groupIds";
             clauses.Add($"ARRAY_CONTAINS(c.{field}, @groupId)");
             parameters["@groupId"] = query.GroupId;
+                if (query.GroupIds.Length > 0)
+                {
+                    var unionField = query.IncludeSubgroups && typeof(T) == typeof(Attendance) ? "inclusiveGroupIds" : "groupIds";
+                    clauses.Add($"({string.Join(" OR ", query.GroupIds.Select((_, index) => $"ARRAY_CONTAINS(c.{unionField}, @groupId{index})").ToArray())})");
+                    for (var index = 0; index < query.GroupIds.Length; index++) parameters[$"@groupId{index}"] = query.GroupIds[index];
+                }
         }
         var dateField = typeof(T) == typeof(Attendance) ? "checkedInAt" : "startsAt";
         if (query.From is not null)

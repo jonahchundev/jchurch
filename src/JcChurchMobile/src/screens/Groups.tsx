@@ -230,6 +230,7 @@ function GroupEditor({
               editable={!locked}
               maxLength={200}
               error={fieldState.error?.message}
+              required
             />
           )}
         />

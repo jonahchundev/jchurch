@@ -1,8 +1,8 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { View } from "react-native";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Controller, useForm } from "react-hook-form";
+import { Controller, useForm, type Control } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { api, churchPath, useAll, useDebounce, useList } from "../api/hooks";
 import { ApiError, message } from "../api/client";
@@ -159,6 +159,8 @@ export default function Members() {
 
 function defaults(member?: Member): MemberFormValues {
   return {
+    memberType: member?.memberType ?? "child",
+    allergyDetail: member?.allergyDetail ?? "",
     scanCode: member?.scanCode ?? "",
     scanCodeFormat: member?.scanCodeFormat ?? "qr",
     firstName: member?.firstName ?? "",
@@ -168,6 +170,8 @@ function defaults(member?: Member): MemberFormValues {
     school: member?.school ?? "",
     phone: member?.phone ?? "",
     email: member?.email ?? "",
+    guardian1: member?.guardian1 ? { ...member.guardian1, middleName: member.guardian1.middleName ?? "", otherRelationship: member.guardian1.otherRelationship ?? "" } : { firstName: "", middleName: "", lastName: "", relationship: "Mother", otherRelationship: "", phone: "", email: "" },
+    guardian2: member?.guardian2 ? { ...member.guardian2, middleName: member.guardian2.middleName ?? "", otherRelationship: member.guardian2.otherRelationship ?? "" } : undefined,
     groupIds: member?.groupIds ?? [],
     customFields: member?.customFields ?? {},
   };
@@ -190,6 +194,78 @@ function MemberDetails(props: Parameters<typeof MemberEditor>[0]) {
   return <MemberEditor {...props} member={props.member ? detail.data : undefined} />;
 }
 
+function GuardianFields({
+  control,
+  prefix,
+  relationship,
+  disabled,
+}: {
+  control: Control<MemberFormValues>;
+  prefix: "guardian1" | "guardian2";
+  relationship?: string;
+  disabled: boolean;
+}) {
+  const fields = [
+    ["firstName", "First name"],
+    ["middleName", "Middle name"],
+    ["lastName", "Last name"],
+    ["phone", "Phone number"],
+    ["email", "Email address"],
+  ] as const;
+  return <>
+    {fields.map(([name, label]) => (
+      <Controller
+        key={`${prefix}.${name}`}
+        control={control}
+        name={`${prefix}.${name}` as "guardian1.firstName"}
+        render={({ field, fieldState }) => (
+          <Field
+            label={label}
+            value={field.value ?? ""}
+            onChangeText={field.onChange}
+            onBlur={field.onBlur}
+            editable={!disabled}
+            autoCapitalize={name === "email" ? "none" : "words"}
+            keyboardType={name === "email" ? "email-address" : name === "phone" ? "phone-pad" : "default"}
+            error={fieldState.error?.message}
+            required={name !== "middleName"}
+          />
+        )}
+      />
+    ))}
+    <Controller
+      control={control}
+      name={`${prefix}.relationship` as "guardian1.relationship"}
+      render={({ field, fieldState }) => (
+        <View>
+          <Select
+            label="Relationship to child"
+            value={field.value ?? "Mother"}
+            disabled={disabled}
+            onChange={field.onChange}
+            required
+            options={[
+              { value: "Mother", label: "Mother" },
+              { value: "Father", label: "Father" },
+              { value: "Grandmother", label: "Grandmother" },
+              { value: "Grandfather", label: "Grandfather" },
+              { value: "Others", label: "Others" },
+            ]}
+          />
+          {!!fieldState.error && <Notice error>{fieldState.error.message}</Notice>}
+        </View>
+      )}
+    />
+    {relationship === "Others" && <Controller
+      control={control}
+      name={`${prefix}.otherRelationship` as "guardian1.otherRelationship"}
+      render={({ field, fieldState }) => (
+        <Field label="Other relationship" value={field.value ?? ""} onChangeText={field.onChange} onBlur={field.onBlur} editable={!disabled} maxLength={50} error={fieldState.error?.message} />
+      )}
+    />}
+  </>;
+}
+
 function MemberEditor({
   member,
   churchId,
@@ -205,11 +281,14 @@ function MemberEditor({
   const [editing, setEditing] = useState(!member);
   const [confirmArchive, setConfirmArchive] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [guardian2Enabled, setGuardian2Enabled] = useState(!!member?.guardian2);
   const [replacement, setReplacement] = useState<MemberFormValues | null>(null);
   const church = useQuery({
     queryKey: [churchPath(churchId)],
     queryFn: ({ signal }) => api.get<Church>(churchPath(churchId), signal),
   });
+  const churchScanFormat = church.data?.scanCodeFormat ?? "qr";
+  const churchScanEnabled = church.data?.scanCodesEnabled ?? true;
   const groups = useAll<Group>(churchPath(churchId, "groups"), {
     includeArchived: true,
   });
@@ -221,6 +300,9 @@ function MemberEditor({
     resolver: zodResolver(memberSchema),
     defaultValues: defaults(member),
   });
+  useEffect(() => {
+    if (church.data) form.setValue("scanCodeFormat", churchScanFormat, { shouldDirty: false });
+  }, [church.data, churchScanFormat, form]);
   const save = useMutation({
     mutationFn: (values: MemberFormValues) =>
       api.save<Member>(
@@ -259,6 +341,9 @@ function MemberEditor({
   const assignedGroups = form.watch("groupIds");
   const hasArchivedGroups = groups.isSuccess && assignedGroups.some(id =>
     !groups.data?.find(group => group.id === id)?.active);
+  const showGroups = groups.isPending || groups.isError || (groups.data?.some(group => group.active || assignedGroups.includes(group.id)) ?? false);
+  const customValues = form.watch("customFields");
+  const showAdditionalDetails = definitions.isPending || definitions.isError || (definitions.data?.some(definition => definition.active || customValues[definition.id] !== undefined) ?? false);
   return (
     <Sheet
       title={current ? memberName(current) : "Add member"}
@@ -279,17 +364,30 @@ function MemberEditor({
         {!current?.active && current && (
           <Notice>This member is archived.</Notice>
         )}
-        <Heading>Scan code</Heading>
+        <Controller control={form.control} name="memberType" render={({ field, fieldState }) => (
+          <View>
+            <Select label="Member type" value={field.value} disabled={locked} required onChange={(value) => {
+              field.onChange(value);
+              if (value === "adult") {
+                form.setValue("school", "", { shouldDirty: true });
+                form.setValue("guardian1", undefined, { shouldDirty: true });
+                form.setValue("guardian2", undefined, { shouldDirty: true });
+              } else if (!form.getValues("guardian1")) {
+                form.setValue("guardian1", { firstName: "", middleName: "", lastName: "", relationship: "Mother", otherRelationship: "", phone: "", email: "" }, { shouldDirty: true });
+              }
+            }} options={[{ value: "child", label: "Child" }, { value: "adult", label: "Adult" }]} />
+            {!!fieldState.error && <Notice error>{fieldState.error.message}</Notice>}
+          </View>
+        )} />
+        {churchScanEnabled && <Heading>Scan code</Heading>}
+        {churchScanEnabled && <>
         <Controller control={form.control} name="scanCode" render={({ field, fieldState }) => (
           <Field label="Member scan code" value={field.value ?? ""} onChangeText={field.onChange}
             editable={!locked} autoCapitalize="characters" autoCorrect={false} maxLength={128}
             error={fieldState.error?.message} />
         )} />
         <Controller control={form.control} name="scanCodeFormat" render={({ field }) => (
-          locked ? <Label>{field.value === "code128" ? "Barcode (Code 128)" : "QR code"}</Label> :
-          <ViewTabs value={field.value ?? "qr"} onChange={field.onChange} options={[
-            { value: "qr", label: "QR" }, { value: "code128", label: "Barcode" },
-          ]} />
+          <Label>{churchScanFormat === "code128" ? "Barcode (Code 128)" : "QR code"}</Label>
         )} />
         {editing && <View style={{ flexDirection: "row", gap: 8 }}>
           <IconButton icon="scan-outline" label={scanning ? "Close code scanner" : "Scan member code"}
@@ -300,20 +398,20 @@ function MemberEditor({
               setScanning(false);
             }} />
         </View>}
-        {scanning && !locked && <ScanInput onScan={code => {
+        {scanning && !locked && <ScanInput format={churchScanFormat} onScan={code => {
           form.setValue("scanCode", code, { shouldDirty: true, shouldValidate: true });
           setScanning(false);
         }} />}
         {!!current?.scanCode && !form.formState.isDirty && !uncertain && church.data && <ScanCard
-          code={current.scanCode} format={current.scanCodeFormat ?? "qr"}
+          code={current.scanCode} format={churchScanFormat}
           memberName={memberName(current)} churchName={church.data.name} />}
+        </>}
         <Heading>Personal details</Heading>
         {(
           [
             "firstName",
             "middleName",
             "lastName",
-            "school",
             "phone",
             "email",
           ] as const
@@ -329,7 +427,6 @@ function MemberEditor({
                     firstName: "First name",
                     middleName: "Middle name",
                     lastName: "Last name",
-                    school: "School",
                     phone: "Phone",
                     email: "Email",
                   }[name]
@@ -347,6 +444,7 @@ function MemberEditor({
                       : "default"
                 }
                 error={fieldState.error?.message}
+                required={name === "firstName" || name === "lastName"}
               />
             )}
           />
@@ -364,6 +462,32 @@ function MemberEditor({
             />
           )}
         />
+        {form.watch("memberType") === "child" && <>
+          <Controller control={form.control} name="school" render={({ field, fieldState }) => (
+            <Field label="School" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} editable={!locked} error={fieldState.error?.message} />
+          )} />
+          <Controller control={form.control} name="allergyDetail" render={({ field, fieldState }) => (
+            <Field label="Allergy detail" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} editable={!locked} multiline error={fieldState.error?.message} />
+          )} />
+          <Heading>Guardian 1</Heading>
+          <GuardianFields control={form.control} prefix="guardian1" disabled={locked} relationship={form.watch("guardian1.relationship")} />
+          <Heading>Guardian 2 (optional)</Heading>
+          {!guardian2Enabled && <Button icon="add-outline" disabled={locked} onPress={() => {
+            setGuardian2Enabled(true);
+            form.setValue("guardian2", { firstName: "", middleName: "", lastName: "", relationship: "Mother", otherRelationship: "", phone: "", email: "" }, { shouldDirty: true });
+          }}>Add Guardian 2</Button>}
+          {guardian2Enabled && <>
+            <GuardianFields control={form.control} prefix="guardian2" disabled={locked} relationship={form.watch("guardian2.relationship")} />
+            <Button icon="close-outline" disabled={locked} onPress={() => {
+              setGuardian2Enabled(false);
+              form.setValue("guardian2", undefined, { shouldDirty: true });
+            }}>Remove Guardian 2</Button>
+          </>}
+        </>}
+        {form.watch("memberType") === "adult" && <Controller control={form.control} name="allergyDetail" render={({ field, fieldState }) => (
+          <Field label="Allergy detail" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} editable={!locked} multiline error={fieldState.error?.message} />
+        )} />}
+        {showGroups && <>
         <Heading>Groups</Heading>
         {editing && hasArchivedGroups && (
           <Notice error>Archived group assignments must be removed or replaced with active groups before saving this member.</Notice>
@@ -379,7 +503,7 @@ function MemberEditor({
           control={form.control}
           name="groupIds"
           render={({ field }) => (
-            <View>
+            <View style={{ gap: 2 }}>
               {(groups.data ?? [])
                 .filter(
                   (group) => group.active || field.value.includes(group.id),
@@ -389,6 +513,7 @@ function MemberEditor({
                     key={group.id}
                     label={`${group.parentGroupId ? `${groups.data?.find((parent) => parent.id === group.parentGroupId)?.name ?? "Group"} / ` : ""}${group.name}${!group.active ? " (archived)" : ""}`}
                     value={field.value.includes(group.id)}
+                    compact
                     disabled={
                       locked ||
                       (!group.active && !field.value.includes(group.id))
@@ -405,6 +530,8 @@ function MemberEditor({
             </View>
           )}
         />
+        </>}
+        {showAdditionalDetails && <>
         <Heading>Additional details</Heading>
         <QueryState
           pending={definitions.isPending}
@@ -413,11 +540,12 @@ function MemberEditor({
           emptyText="No custom fields defined."
           onRetry={() => void definitions.refetch()}
         />
+        </>}
         <Controller
           control={form.control}
           name="customFields"
           render={({ field }) => (
-            <View style={styles.stack}>
+            <View style={{ gap: 8 }}>
               {(definitions.data ?? [])
                 .filter(
                   (definition) =>

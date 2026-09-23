@@ -22,7 +22,7 @@ public sealed class ChurchApi(Repositories repositories, DirectoryService direct
         TokenLimit = 120, TokensPerPeriod = 120, ReplenishmentPeriod = TimeSpan.FromMinutes(1),
         AutoReplenishment = true, QueueLimit = 0
     });
-    private sealed record OverrideRequest(DateTimeOffset StartsAt, DateTimeOffset EndsAt, bool Cancelled, bool Archived);
+    private sealed record OverrideRequest(DateTimeOffset StartsAt, DateTimeOffset EndsAt, bool Cancelled, bool Archived, string[]? GroupIds);
 
     [Function("ChurchApi")]
     public async Task<HttpResponseData> Run([HttpTrigger(AuthorizationLevel.Anonymous, "get", "post", "put", "delete", Route = "v1/{*path}")] HttpRequestData request,
@@ -157,7 +157,7 @@ public sealed class ChurchApi(Repositories repositories, DirectoryService direct
             if (request.Method != "PUT" || id is null) throw MethodNotAllowed();
             var etag = IfMatch(request);
             var input = await Body<OverrideRequest>(request, cancellationToken);
-            return new(200, await events.Override(churchId, id, input.StartsAt, input.EndsAt, input.Cancelled, input.Archived, etag, cancellationToken));
+            return new(200, await events.Override(churchId, id, input.StartsAt, input.EndsAt, input.Cancelled, input.Archived, etag, cancellationToken, input.GroupIds));
         }
         if ((request.Method == "POST" && id is null) || (request.Method == "PUT" && id is not null))
         {
@@ -209,14 +209,14 @@ public sealed class ChurchApi(Repositories repositories, DirectoryService direct
 
     private Query ParseQuery(NameValueCollection values, string churchId, bool attendance = false)
     {
-        var allowed = new[] { "search", "eventId", "occurrenceId", "memberId", "groupId", "parentGroupId", "includeSubgroups", "includeArchived", "from", "to", "pageSize", "continuationToken" };
+        var allowed = new[] { "search", "eventId", "occurrenceId", "memberId", "groupId", "groupIds", "parentGroupId", "includeSubgroups", "includeArchived", "from", "to", "pageSize", "continuationToken" };
         foreach (var key in values.AllKeys)
-            if (key is null || !allowed.Contains(key) || values.GetValues(key)?.Length != 1) throw new ApiException(400, "invalid_query", "Unknown or repeated query parameter.");
+            if (key is null || !allowed.Contains(key) || (key != "groupIds" && values.GetValues(key)?.Length != 1)) throw new ApiException(400, "invalid_query", "Unknown or repeated query parameter.");
         bool Flag(string name) => values[name] is not { } value ? false : bool.TryParse(value, out var parsed) ? parsed : throw new ApiException(400, "invalid_query", $"{name} must be true or false.");
         DateTimeOffset? Date(string name) => values[name] is not { } value ? null : DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed) ? parsed.ToUniversalTime() : throw new ApiException(400, "invalid_query", $"Invalid {name} timestamp.");
         var query = new Query
         {
-            ChurchId = churchId, Search = values["search"], EventId = values["eventId"], OccurrenceId = values["occurrenceId"], MemberId = values["memberId"], GroupId = values["groupId"], ParentGroupId = values["parentGroupId"],
+            ChurchId = churchId, Search = values["search"], EventId = values["eventId"], OccurrenceId = values["occurrenceId"], MemberId = values["memberId"], GroupId = values["groupId"], GroupIds = (values.GetValues("groupIds") ?? []).SelectMany(value => value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)).Distinct(StringComparer.Ordinal).ToArray(), ParentGroupId = values["parentGroupId"],
             IncludeSubgroups = Flag("includeSubgroups"), ActiveOnly = !Flag("includeArchived"), From = Date("from"), To = Date("to"), ContinuationToken = values["continuationToken"],
             PageSize = values["pageSize"] is not { } size ? 50 : int.TryParse(size, out var parsed) ? parsed : throw new ApiException(400, "invalid_query", "Invalid pageSize.")
         };

@@ -14,6 +14,145 @@ public sealed class TestClock(DateTimeOffset now) : TimeProvider
 public sealed class ServiceTests
 {
     [Fact]
+    public async Task EventGroupsInheritToOccurrencesAndCanBeClearedPerOccurrence()
+    {
+        var repositories = Memory();
+        var clock = new TestClock(DateTimeOffset.Parse("2026-09-23T08:00:00Z"));
+        var directory = new DirectoryService(repositories, clock);
+        var events = new EventService(repositories, directory, clock);
+        var church = await directory.Save(new Church { Name = "Groups" }, null);
+        var group = await directory.Save(new Group { Name = "Children" }, church.Id);
+        var other = await directory.Save(new Group { Name = "Adults" }, church.Id);
+        var definition = await events.Save(new ChurchEvent { Name = "Service", LocalStart = new DateTime(2026, 9, 24, 10, 0, 0), TimeZone = "UTC", GroupIds = [group.Id] }, church.Id);
+        var occurrence = await events.Generate(church.Id, definition.Id);
+        Assert.Equal([group.Id], occurrence!.GroupIds);
+        var cleared = await events.Override(church.Id, occurrence.Id, occurrence.StartsAt, occurrence.EndsAt, false, false, occurrence.ETag, groupIds: []);
+        Assert.Empty(cleared.GroupIds);
+        var reassigned = await events.Override(church.Id, occurrence.Id, occurrence.StartsAt, occurrence.EndsAt, false, false, cleared.ETag, groupIds: [other.Id]);
+        Assert.Equal([other.Id], reassigned.GroupIds);
+    }
+
+    [Fact]
+    public async Task CurrentOccurrenceCanChangeGroupsWithoutChangingItsSchedule()
+    {
+        var repositories = Memory();
+        var clock = new TestClock(DateTimeOffset.Parse("2026-09-23T10:00:00Z"));
+        var directory = new DirectoryService(repositories, clock);
+        var events = new EventService(repositories, directory, clock);
+        var church = await directory.Save(new Church { Name = "Current session groups" }, null);
+        var group = await directory.Save(new Group { Name = "Adults" }, church.Id);
+        var occurrence = (await repositories.Occurrences.Create(new Occurrence
+        {
+            Id = "occurrence", ChurchId = church.Id, EventId = "event",
+            StartsAt = clock.Now.AddMinutes(-15), EndsAt = clock.Now.AddMinutes(45)
+        })).Item;
+
+        var updated = await events.Override(
+            church.Id, occurrence.Id, occurrence.StartsAt, occurrence.EndsAt,
+            occurrence.Cancelled, occurrence.Archived, occurrence.ETag, groupIds: [group.Id]);
+
+        Assert.Equal([group.Id], updated.GroupIds);
+        Assert.Equal(occurrence.StartsAt, updated.StartsAt);
+        Assert.Equal(occurrence.EndsAt, updated.EndsAt);
+    }
+
+    [Fact]
+    public async Task MemberGroupQueryUsesUnionMatching()
+    {
+        var repositories = Memory();
+        var directory = new DirectoryService(repositories, TimeProvider.System);
+        var church = await directory.Save(new Church { Name = "Query" }, null);
+        var first = await directory.Save(new Group { Name = "First" }, church.Id);
+        var second = await directory.Save(new Group { Name = "Second" }, church.Id);
+        await directory.Save(new Member { MemberType = "adult", FirstName = "One", LastName = "Member", GroupIds = [first.Id] }, church.Id);
+        await directory.Save(new Member { MemberType = "adult", FirstName = "Two", LastName = "Member", GroupIds = [second.Id] }, church.Id);
+        await directory.Save(new Member { MemberType = "adult", FirstName = "Three", LastName = "Member" }, church.Id);
+        var page = await repositories.Members.Search(new Query { ChurchId = church.Id, GroupIds = [first.Id, second.Id] });
+        Assert.Equal(2, page.Items.Count);
+    }
+
+    [Fact]
+    public async Task ChurchScanFormatDefaultsToQrAndRejectsUnsupportedValues()
+    {
+        var repositories = Memory();
+        var service = new DirectoryService(repositories, TimeProvider.System);
+        var defaultChurch = await service.Save(new Church { Name = "Default" }, null);
+        Assert.Equal("qr", defaultChurch.ScanCodeFormat);
+        var barcodeChurch = await service.Save(new Church { Name = "Barcode", ScanCodeFormat = "code128" }, null);
+        Assert.Equal("code128", barcodeChurch.ScanCodeFormat);
+        var error = await Assert.ThrowsAsync<ApiException>(() => service.Save(new Church { Name = "Invalid", ScanCodeFormat = "pdf" }, null));
+        Assert.Contains("scanCodeFormat", error.Message);
+    }
+
+    [Fact]
+    public async Task GenerateCreatesMissingPastOneTimeOccurrenceWithinWindow()
+    {
+        var repositories = Memory();
+        var clock = new TestClock(DateTimeOffset.Parse("2026-09-23T12:00:00Z"));
+        var directory = new DirectoryService(repositories, clock);
+        var events = new EventService(repositories, directory, clock);
+        var church = await directory.Save(new Church { Name = "Occurrence" }, null);
+        var definition = await events.Save(new ChurchEvent
+        {
+            Name = "Past one-time",
+            LocalStart = new DateTime(2026, 9, 22, 10, 0, 0),
+            TimeZone = "UTC",
+            DurationMinutes = 60
+        }, church.Id);
+        var generated = await events.Generate(church.Id, definition.Id);
+        Assert.NotNull(generated);
+        Assert.Equal(DateTimeOffset.Parse("2026-09-22T10:00:00Z"), generated!.StartsAt);
+        Assert.Null(await events.Generate(church.Id, definition.Id));
+    }
+
+    [Fact]
+    public async Task GenerateCreatesMissingOneTimeOccurrenceEarlierToday()
+    {
+        var repositories = Memory();
+        var clock = new TestClock(DateTimeOffset.Parse("2026-09-23T12:00:00Z"));
+        var directory = new DirectoryService(repositories, clock);
+        var events = new EventService(repositories, directory, clock);
+        var church = await directory.Save(new Church { Name = "Today" }, null);
+        var definition = await events.Save(new ChurchEvent
+        {
+            Name = "Today one-time",
+            LocalStart = new DateTime(2026, 9, 23, 10, 0, 0),
+            TimeZone = "UTC",
+            DurationMinutes = 60
+        }, church.Id);
+        var occurrence = await events.Generate(church.Id, definition.Id);
+        Assert.NotNull(occurrence);
+        Assert.Equal(DateTimeOffset.Parse("2026-09-23T10:00:00Z"), occurrence!.StartsAt);
+    }
+
+    [Fact]
+    public async Task ChildGuardiansRequireContactDetailsAndLimitOtherRelationship()
+    {
+        var repositories = Memory();
+        var service = new DirectoryService(repositories, TimeProvider.System);
+        var church = await service.Save(new Church { Name = "Guardian validation" }, null);
+        var guardian = new Guardian
+        {
+            FirstName = "Maria",
+            LastName = "Test",
+            Relationship = "Others",
+            OtherRelationship = new string('x', 50),
+            Phone = "555-0100",
+            Email = "maria@example.com"
+        };
+        var child = await service.Save(new Member { MemberType = "child", FirstName = "Child", LastName = "Test", Guardian1 = guardian }, church.Id);
+        Assert.Equal(guardian.OtherRelationship, child.Guardian1!.OtherRelationship);
+
+        var missingPhone = guardian with { Phone = "" };
+        var phoneError = await Assert.ThrowsAsync<ApiException>(() => service.Save(new Member { MemberType = "child", FirstName = "Child", LastName = "Phone", Guardian1 = missingPhone }, church.Id));
+        Assert.Contains("phone is required", phoneError.Message);
+
+        var longOther = guardian with { OtherRelationship = new string('x', 51) };
+        var relationshipError = await Assert.ThrowsAsync<ApiException>(() => service.Save(new Member { MemberType = "child", FirstName = "Child", LastName = "Relationship", Guardian1 = longOther }, church.Id));
+        Assert.Contains("at most 50", relationshipError.Message);
+    }
+
+    [Fact]
     public async Task ScanCodesReplaceAtomicallyAndRejectConcurrentOwners()
     {
         var repository = new InMemoryRepository<Member>();
@@ -49,7 +188,7 @@ public sealed class ServiceTests
         var church = await directory.Save(new Church { Name = "Synthetic Church" }, null);
         var group = await directory.Save(new Group { Name = "Adults" }, church.Id);
         var subgroup = await directory.Save(new Group { Name = "Class", ParentGroupId = group.Id }, church.Id);
-        var member = await directory.Save(new Member { FirstName = "Ada", LastName = "Test", GroupIds = [group.Id, subgroup.Id] }, church.Id);
+        var member = await directory.Save(new Member { MemberType = "adult", FirstName = "Ada", LastName = "Test", GroupIds = [group.Id, subgroup.Id] }, church.Id);
         var definition = (await repositories.Events.Create(new ChurchEvent { Id = "event", ChurchId = church.Id })).Item;
         await repositories.Occurrences.Create(new Occurrence { Id = "occurrence", ChurchId = church.Id, EventId = definition.Id, StartsAt = clock.Now, EndsAt = clock.Now.AddHours(1) });
         var results = await Task.WhenAll(Enumerable.Range(0, 100).Select(_ => Task.Run(() => service.CheckIn(church.Id, "occurrence", member.Id))));
@@ -112,8 +251,8 @@ public sealed class ServiceTests
         var clock = new TestClock(DateTimeOffset.UtcNow);
         var directory = new DirectoryService(repositories, clock);
         var church = await directory.Save(new Church { Name = "Synthetic" }, null);
-        var member = await directory.Save(new Member { FirstName = "Scan", LastName = "Test", ScanCode = "0000-old", ScanCodeFormat = "code128" }, church.Id);
-        member = await directory.Save(new Member { FirstName = "Legacy", LastName = "Edit" }, church.Id, member.Id, member.ETag);
+        var member = await directory.Save(new Member { MemberType = "adult", FirstName = "Scan", LastName = "Test", ScanCode = "0000-old", ScanCodeFormat = "code128" }, church.Id);
+        member = await directory.Save(new Member { MemberType = "adult", FirstName = "Legacy", LastName = "Edit" }, church.Id, member.Id, member.ETag);
         Assert.Equal("0000-OLD", member.ScanCode);
         Assert.Equal("code128", member.ScanCodeFormat);
         await repositories.Events.Create(new ChurchEvent { Id = "event", ChurchId = church.Id });
@@ -124,7 +263,7 @@ public sealed class ServiceTests
         member = await directory.Save(member with { ScanCode = "0000-new" }, church.Id, member.Id, member.ETag);
         Assert.Equal("scan_code_not_found", (await Assert.ThrowsAsync<ApiException>(() => service.ResolveScan(church.Id, "0000-old"))).Code);
         Assert.False((await service.CheckIn(church.Id, occurrence.Id, (await service.ResolveScan(church.Id, "0000-new")).Id)).Created);
-        var other = await directory.Save(new Member { FirstName = "Other", LastName = "Test", ScanCode = "other-code" }, church.Id);
+        var other = await directory.Save(new Member { MemberType = "adult", FirstName = "Other", LastName = "Test", ScanCode = "other-code" }, church.Id);
         await repositories.Occurrences.Replace(occurrence with { Cancelled = true }, occurrence.ETag);
         Assert.Equal("check_in_closed", (await Assert.ThrowsAsync<ApiException>(() => service.CheckIn(church.Id, occurrence.Id, other.Id))).Code);
         member = await directory.Save(member with { ScanCode = null, ScanCodeSpecified = true }, church.Id, member.Id, member.ETag);
@@ -204,7 +343,7 @@ public sealed class ServiceTests
         var parent = await service.Save(new Group { Name = "Parent" }, first.Id);
         var child = await service.Save(new Group { Name = "Child", ParentGroupId = parent.Id }, first.Id);
         await Assert.ThrowsAsync<ApiException>(() => service.Save(new Group { Name = "Too deep", ParentGroupId = child.Id }, first.Id));
-        Assert.Equal(404, (await Assert.ThrowsAsync<ApiException>(() => service.Save(new Member { FirstName = "Ada", LastName = "Test", GroupIds = [parent.Id] }, second.Id))).Status);
+        Assert.Equal(404, (await Assert.ThrowsAsync<ApiException>(() => service.Save(new Member { MemberType = "adult", FirstName = "Ada", LastName = "Test", GroupIds = [parent.Id] }, second.Id))).Status);
         Assert.Equal(409, (await Assert.ThrowsAsync<ApiException>(() => service.Archive<Group>(first.Id, parent.Id, parent.ETag))).Status);
     }
 
@@ -229,11 +368,11 @@ public sealed class ServiceTests
         Assert.Equal(child.ParentGroupId, renamed.ParentGroupId);
         Assert.Equal(412, (await Assert.ThrowsAsync<ApiException>(() => service.Save(child, church.Id, child.Id, child.ETag))).Status);
         Assert.Equal(412, (await Assert.ThrowsAsync<ApiException>(() => service.Archive<Group>(church.Id, child.Id, child.ETag))).Status);
-        var member = await service.Save(new Member { FirstName = "Group", LastName = "Member", GroupIds = [parent.Id, child.Id] }, church.Id);
+        var member = await service.Save(new Member { MemberType = "adult", FirstName = "Group", LastName = "Member", GroupIds = [parent.Id, child.Id] }, church.Id);
         Assert.Equal("has_subgroups", (await Assert.ThrowsAsync<ApiException>(() => service.Archive<Group>(church.Id, parent.Id, parent.ETag))).Code);
         await service.Archive<Group>(church.Id, child.Id, renamed.ETag);
         Assert.Equal(member.GroupIds, (await service.Get<Member>(church.Id, member.Id)).GroupIds);
-        Assert.Equal("archived", (await Assert.ThrowsAsync<ApiException>(() => service.Save(new Member { FirstName = "New", LastName = "Member", GroupIds = [child.Id] }, church.Id))).Code);
+        Assert.Equal("archived", (await Assert.ThrowsAsync<ApiException>(() => service.Save(new Member { MemberType = "adult", FirstName = "New", LastName = "Member", GroupIds = [child.Id] }, church.Id))).Code);
         member = await service.Save(member with { GroupIds = [parent.Id] }, church.Id, member.Id, member.ETag);
         Assert.Equal(new[] { parent.Id }, member.GroupIds);
         await service.Archive<Group>(church.Id, parent.Id, parent.ETag);

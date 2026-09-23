@@ -5,6 +5,10 @@ import type { CustomField, MemberInput } from "./api/types";
 export const nameSchema = z.object({
   name: z.string().trim().min(1, "Name is required.").max(200),
 });
+export const churchSchema = nameSchema.extend({
+  scanCodesEnabled: z.boolean(),
+  scanCodeFormat: z.enum(["qr", "code128"]),
+});
 export const eventSchema = nameSchema
   .extend({
     localStart: z
@@ -22,6 +26,7 @@ export const eventSchema = nameSchema
         "Duration must be 1 to 10080 minutes.",
       ),
     recurrenceRule: z.string().max(500),
+    groupIds: z.array(z.string()).max(50),
   })
   .superRefine((values, context) => {
     try {
@@ -72,6 +77,15 @@ export function describeRecurrence(rule: string | null | undefined) {
   return interval === 1 ? `Every ${unit}` : `Every ${interval} ${unit}s`;
 }
 const optionalText = (max: number) => z.string().max(max);
+const guardianSchema = z.object({
+  firstName: z.string().trim().min(1, "First name is required.").max(200),
+  middleName: optionalText(200),
+  lastName: z.string().trim().min(1, "Last name is required.").max(200),
+  relationship: z.enum(["Mother", "Father", "Grandmother", "Grandfather", "Others"]),
+  otherRelationship: optionalText(50),
+  phone: z.string().trim().min(1, "Phone is required.").max(50),
+  email: z.string().trim().email().max(254),
+});
 export function normalizeScanCode(value: string): string {
   const code = value.trim();
   if (value.length > 128 || !/^[A-Za-z0-9-]{8,64}$/.test(code))
@@ -79,6 +93,8 @@ export function normalizeScanCode(value: string): string {
   return code.toUpperCase();
 }
 export const memberSchema = z.object({
+  memberType: z.enum(["child", "adult"]),
+  allergyDetail: optionalText(1000),
   scanCode: z.string().max(128).refine(value => {
     if (!value.trim()) return true;
     try { normalizeScanCode(value); return true; } catch { return false; }
@@ -90,6 +106,8 @@ export const memberSchema = z.object({
   school: optionalText(200),
   phone: optionalText(50),
   email: z.union([z.literal(""), z.string().email().max(254)]),
+  guardian1: guardianSchema.optional(),
+  guardian2: guardianSchema.optional(),
   birthDate: z
     .string()
     .refine(
@@ -102,6 +120,15 @@ export const memberSchema = z.object({
     ),
   groupIds: z.array(z.string()).max(50),
   customFields: z.record(z.string(), z.unknown()),
+}).superRefine((values, context) => {
+  if (values.memberType === "child" && !values.guardian1)
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["guardian1"], message: "Guardian 1 is required for child members." });
+  for (const [path, guardian] of [["guardian1", values.guardian1], ["guardian2", values.guardian2]] as const) {
+    if (guardian?.relationship === "Others" && !guardian.otherRelationship.trim())
+      context.addIssue({ code: z.ZodIssueCode.custom, path: [path, "otherRelationship"], message: "Describe the relationship." });
+    if (guardian && guardian.relationship !== "Others" && guardian.otherRelationship.trim())
+      context.addIssue({ code: z.ZodIssueCode.custom, path: [path, "otherRelationship"], message: "Only use this field for Others." });
+  }
 });
 export type MemberFormValues = z.infer<typeof memberSchema>;
 
@@ -148,19 +175,24 @@ export function memberInput(
       scanCodeFormat: values.scanCode.trim() ? values.scanCodeFormat ?? "qr" : null,
     } : {}),
     middleName: values.middleName || null,
-    school: values.school || null,
+    school: values.memberType === "child" ? values.school || null : null,
     phone: values.phone || null,
     email: values.email || null,
+    allergyDetail: values.allergyDetail || null,
+    guardian1: values.memberType === "child" ? values.guardian1 : undefined,
+    guardian2: values.memberType === "child" ? values.guardian2 : undefined,
     birthDate: values.birthDate || null,
     customFields,
   };
 }
 
 export function localToUtc(local: string, zone: string): string {
-  const parsed = DateTime.fromISO(local, { zone });
+  const normalizedLocal = local.trim().slice(0, 16);
+  const normalizedZone = zone.trim();
+  const parsed = DateTime.fromISO(normalizedLocal, { zone: normalizedZone, setZone: true });
   if (
     !parsed.isValid ||
-    parsed.toFormat("yyyy-MM-dd'T'HH:mm") !== local.slice(0, 16) ||
+    parsed.toFormat("yyyy-MM-dd'T'HH:mm") !== normalizedLocal ||
     parsed.getPossibleOffsets().length !== 1
   ) {
     throw new Error(

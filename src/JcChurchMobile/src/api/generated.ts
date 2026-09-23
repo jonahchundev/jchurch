@@ -416,12 +416,41 @@ export interface components {
         };
         ChurchInput: {
             name: string;
+            /**
+             * @description Whether member card and scan check-in functionality is available.
+             * @default true
+             */
+            scanCodesEnabled: boolean;
+            /**
+             * @description Preferred format for member cards and scan check-in. Existing churches default to QR.
+             * @default qr
+             * @enum {string|null}
+             */
+            scanCodeFormat: "qr" | "code128" | null;
         };
         GroupInput: {
             name: string;
             parentGroupId?: string | null;
         };
+        GuardianInput: {
+            firstName: string;
+            middleName?: string | null;
+            lastName: string;
+            /** @enum {string} */
+            relationship: "Mother" | "Father" | "Grandmother" | "Grandfather" | "Others";
+            /** @description Required when relationship is Others. */
+            otherRelationship?: string | null;
+            phone: string;
+            /** Format: email */
+            email: string;
+        };
         MemberInput: {
+            /**
+             * @description Children require guardian1; adults cannot have school or guardian information.
+             * @enum {string}
+             */
+            memberType: "child" | "adult";
+            allergyDetail?: string | null;
             /** @description Current church-unique code. Canonical 8-64 uppercase ASCII letters/digits/hyphens. Omission on update preserves the assignment; null removes it. Replacement deletes the old lookup without archiving. Conflict returns 409. */
             scanCode?: string | null;
             /**
@@ -434,10 +463,15 @@ export interface components {
             middleName?: string | null;
             /** Format: date */
             birthDate?: string | null;
+            /** @description Child members only. */
             school?: string | null;
             phone?: string | null;
             /** Format: email */
             email?: string | null;
+            /** @description Required for child members; forbidden for adults. */
+            guardian1?: components["schemas"]["GuardianInput"];
+            /** @description Optional for child members; forbidden for adults. */
+            guardian2?: components["schemas"]["GuardianInput"];
             groupIds?: string[];
             /** @description Keys are custom-field definition IDs; values must match each definition's type. */
             customFields?: {
@@ -464,6 +498,8 @@ export interface components {
              * @example FREQ=WEEKLY;BYDAY=SU
              */
             recurrenceRule?: string | null;
+            /** @description Default check-in groups. Empty means all church members. */
+            groupIds?: string[];
         };
         OccurrenceOverride: {
             /** Format: date-time */
@@ -473,6 +509,8 @@ export interface components {
             cancelled: boolean;
             /** @description A reversible organizational state permitted only after the occurrence ends. */
             archived: boolean;
+            /** @description Omit to preserve the current filter; empty clears the filter. */
+            groupIds?: string[] | null;
         };
         OccurrenceCheckInCount: {
             occurrenceId: string;
