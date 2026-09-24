@@ -75,8 +75,16 @@ resource directory 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/container
       indexingPolicy: {
         indexingMode: 'consistent'
         automatic: true
-        includedPaths: [for path in ['/churchId/?', '/kind/?', '/active/?', '/searchText/?', '/parentGroupId/?', '/groupIds/[]/?', '/eventId/?', '/startsAt/?']: { path: path }]
+        includedPaths: [for path in ['/churchId/?', '/kind/?', '/active/?', '/searchText/?', '/parentGroupId/?', '/groupIds/[]/?', '/eventId/?', '/startsAt/?', '/lastName/?', '/firstName/?']: { path: path }]
         excludedPaths: [{ path: '/*' }]
+        // Required to serve members' ORDER BY lastName, firstName, id (see CosmosRepository.BuildQuery)
+        compositeIndexes: [
+          [
+            { path: '/lastName', order: 'ascending' }
+            { path: '/firstName', order: 'ascending' }
+            { path: '/id', order: 'ascending' }
+          ]
+        ]
       }
     }
   }
