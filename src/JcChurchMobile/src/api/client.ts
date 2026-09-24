@@ -113,6 +113,9 @@ export function createApi(
     async archive(path: string, etag: string) {
       await request(path, { method: "DELETE", etag });
     },
+    async purge(path: string, etag: string) {
+      await request(path, { method: "DELETE", etag });
+    },
     async text(path: string, signal?: AbortSignal): Promise<string> {
       const controller = new AbortController();
       const abort = () => controller.abort();

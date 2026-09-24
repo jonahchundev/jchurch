@@ -67,6 +67,9 @@ public interface IRepository<T> where T : Document
         throw new NotSupportedException("Check-in counts require an attendance repository.");
     Task<Member?> ResolveScanCode(string churchId, string code, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("Scan lookup requires a member repository.");
+    // Physically deletes every document for churchId in this repository's backing container (all kinds, if the container is shared).
+    Task Purge(string churchId, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("Purge requires a supported repository implementation.");
 }
 
 public static class Cursor

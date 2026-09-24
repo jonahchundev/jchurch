@@ -170,4 +170,19 @@ public sealed class DirectoryService(Repositories repositories, TimeProvider clo
         }
         await repositories.For<T>().Replace(existing with { Active = false }, etag, cancellationToken);
     }
+
+    public async Task Purge(string churchId, string etag, CancellationToken cancellationToken = default)
+    {
+        var church = await Get<Church>(churchId, churchId, cancellationToken: cancellationToken);
+        if (church.Active) throw new ApiException(409, "not_archived", "Archive the church before deleting it permanently.");
+        if (etag != church.ETag) throw new ApiException(412, "stale_version", "ETag is stale.");
+        await repositories.Attendance.Purge(churchId, cancellationToken);
+        // InMemory keeps a separate dictionary per document type (unlike Cosmos, where they share one container), so each must be purged explicitly.
+        await repositories.Occurrences.Purge(churchId, cancellationToken);
+        await repositories.Events.Purge(churchId, cancellationToken);
+        await repositories.Fields.Purge(churchId, cancellationToken);
+        await repositories.Members.Purge(churchId, cancellationToken);
+        await repositories.Groups.Purge(churchId, cancellationToken);
+        await repositories.Churches.Purge(churchId, cancellationToken);
+    }
 }

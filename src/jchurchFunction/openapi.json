@@ -16,6 +16,10 @@
       "put": { "operationId": "updateChurch", "parameters": [{ "$ref": "#/components/parameters/IfMatch" }], "requestBody": { "$ref": "#/components/requestBodies/Church" }, "responses": { "200": { "$ref": "#/components/responses/Document" }, "default": { "$ref": "#/components/responses/Problem" } } },
       "delete": { "operationId": "archiveChurch", "parameters": [{ "$ref": "#/components/parameters/IfMatch" }], "responses": { "204": { "description": "Archived; all history retained" }, "default": { "$ref": "#/components/responses/Problem" } } }
     },
+    "/churches/{churchId}/purge": {
+      "parameters": [{ "$ref": "#/components/parameters/churchId" }],
+      "delete": { "operationId": "purgeChurch", "description": "Permanently and irreversibly deletes the church and all associated groups, members, custom fields, events, occurrences, and attendance records. The church must already be archived (409 not_archived otherwise). Safe to retry after a failure; already-deleted documents are skipped.", "parameters": [{ "$ref": "#/components/parameters/IfMatch" }], "responses": { "204": { "description": "Permanently deleted; cannot be undone" }, "default": { "$ref": "#/components/responses/Problem" } } }
+    },
     "/churches/{churchId}/groups": {
       "parameters": [{ "$ref": "#/components/parameters/churchId" }],
       "get": { "operationId": "listGroups", "parameters": [{ "$ref": "#/components/parameters/search" }, { "$ref": "#/components/parameters/parentGroupId" }, { "$ref": "#/components/parameters/pageSize" }, { "$ref": "#/components/parameters/continuationToken" }, { "$ref": "#/components/parameters/includeArchived" }], "responses": { "200": { "$ref": "#/components/responses/Page" }, "default": { "$ref": "#/components/responses/Problem" } } },

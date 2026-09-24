@@ -34,7 +34,10 @@ export default function Churches({ manage = false }: { manage?: boolean }) {
   const [last, setLast] = useState<string | null>(null);
   const [editing, setEditing] = useState<Church | "new" | null>(null);
   const [notice, setNotice] = useState("");
-  const query = useList<Church>("/churches", { search: useDebounce(search) });
+  const query = useList<Church>("/churches", {
+    search: useDebounce(search),
+    ...(manage ? { includeArchived: true } : {}),
+  });
   const churches = query.data?.pages.flatMap((page) => page.items) ?? [];
   useEffect(() => {
     void AsyncStorage.getItem(lastKey)
@@ -104,7 +107,7 @@ export default function Churches({ manage = false }: { manage?: boolean }) {
             key={church.id}
             title={church.name}
             icon="business-outline"
-            badge={last === church.id ? "Last selected" : undefined}
+            badge={church.active === false ? "Archived" : last === church.id ? "Last selected" : undefined}
             subtitle={manage ? "Church settings" : undefined}
             onPress={() => (manage ? setEditing(church) : void select(church))}
           />
@@ -172,6 +175,7 @@ function ChurchEditor({
 }) {
   const [current, setCurrent] = useState(church);
   const [confirmArchive, setConfirmArchive] = useState(false);
+  const [confirmPurge, setConfirmPurge] = useState(false);
   const form = useForm<{ name: string; scanCodesEnabled: boolean; scanCodeFormat: "qr" | "code128" }>({
     resolver: zodResolver(churchSchema),
     defaultValues: { name: church?.name ?? "", scanCodesEnabled: church?.scanCodesEnabled ?? true, scanCodeFormat: church?.scanCodeFormat ?? "qr" },
@@ -189,6 +193,10 @@ function ChurchEditor({
     mutationFn: () => api.archive(churchPath(current!.id), current!._etag),
     onSuccess: () => onSaved(true, current),
   });
+  const purge = useMutation({
+    mutationFn: () => api.purge(churchPath(current!.id, "purge"), current!._etag),
+    onSuccess: () => onSaved(true, current),
+  });
   const reload = useMutation({
     mutationFn: () => api.get<Church>(churchPath(current!.id)),
     onSuccess: (result) => {
@@ -199,8 +207,8 @@ function ChurchEditor({
       setConfirmArchive(false);
     },
   });
-  const error = save.error ?? archive.error ?? reload.error;
-  const busy = save.isPending || archive.isPending || reload.isPending;
+  const error = save.error ?? archive.error ?? purge.error ?? reload.error;
+  const busy = save.isPending || archive.isPending || purge.isPending || reload.isPending;
   return (
     <Sheet
       title={current ? "Church settings" : "Create church"}
@@ -302,6 +310,40 @@ function ChurchEditor({
               onPress={() => setConfirmArchive(false)}
             >
               Keep church
+            </Button>
+          </>
+        )}
+        {current && current.active === false && !confirmPurge && (
+          <Button
+            danger
+            disabled={busy}
+            icon="nuclear-outline"
+            onPress={() => setConfirmPurge(true)}
+          >
+            Permanently delete church
+          </Button>
+        )}
+        {confirmPurge && (
+          <>
+            <Notice
+              error
+            >{`Permanently delete ${current?.name} and ALL its groups, members, events, and attendance history? This cannot be undone.`}</Notice>
+            <Button
+              danger
+              busy={purge.isPending}
+              disabled={
+                busy || (error instanceof ApiError && error.status === 412)
+              }
+              onPress={() => purge.mutate()}
+            >
+              Permanently delete
+            </Button>
+            <Button
+              secondary
+              disabled={busy}
+              onPress={() => setConfirmPurge(false)}
+            >
+              Cancel
             </Button>
           </>
         )}

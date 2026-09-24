@@ -169,6 +169,32 @@ public sealed class CosmosRepository<T>(CosmosClient client, CosmosSettings sett
         return counts;
     }
 
+    // Deletes every document for churchId in this container: for Attendance, a churchId-only partition key spans all occurrenceId sub-partitions.
+    public async Task Purge(string churchId, CancellationToken cancellationToken = default)
+    {
+        var isAttendance = typeof(T) == typeof(Attendance);
+        var partition = isAttendance ? new PartitionKeyBuilder().Add(churchId).Build() : Partition(churchId);
+        var definition = new QueryDefinition(isAttendance
+                ? "SELECT c.id, c.occurrenceId FROM c WHERE c.churchId = @churchId"
+                : "SELECT c.id FROM c WHERE c.churchId = @churchId")
+            .WithParameter("@churchId", churchId);
+        using var iterator = container.GetItemQueryIterator<JsonElement>(definition, requestOptions: new QueryRequestOptions { PartitionKey = partition });
+        var items = new List<(string Id, string? OccurrenceId)>();
+        while (iterator.HasMoreResults)
+        {
+            var page = await iterator.ReadNextAsync(cancellationToken);
+            items.AddRange(page.Select(element => (element.GetProperty("id").GetString()!, isAttendance ? element.GetProperty("occurrenceId").GetString() : null)));
+        }
+        await Parallel.ForEachAsync(items, new ParallelOptions { MaxDegreeOfParallelism = 8, CancellationToken = cancellationToken }, async (item, token) =>
+        {
+            try
+            {
+                await container.DeleteItemAsync<object>(item.Id, Partition(churchId, item.OccurrenceId), cancellationToken: token);
+            }
+            catch (CosmosException error) when (error.StatusCode == HttpStatusCode.NotFound) { }
+        });
+    }
+
     public static QueryDefinition BuildQuery(Query query)
     {
         var clauses = new List<string> { "c.churchId = @churchId", "c.kind = @kind" };

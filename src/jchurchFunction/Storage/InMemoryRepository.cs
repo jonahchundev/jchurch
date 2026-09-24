@@ -106,4 +106,15 @@ public sealed class InMemoryRepository<T> : IRepository<T> where T : Document
             return Task.FromResult<IReadOnlyList<OccurrenceCheckInCount>>(counts);
         }
     }
+
+    public Task Purge(string churchId, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (gate)
+        {
+            foreach (var key in documents.Keys.Where(key => key.Church == churchId).ToArray()) documents.Remove(key);
+            foreach (var key in scanOwners.Keys.Where(key => key.Church == churchId).ToArray()) scanOwners.Remove(key);
+        }
+        return Task.CompletedTask;
+    }
 }

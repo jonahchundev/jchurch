@@ -79,6 +79,11 @@ public sealed class ChurchApi(Repositories repositories, DirectoryService direct
         if (route.Length <= 2) return await Resource<Church>(request, route.Length == 2 ? route[1] : "", route.Length == 2 ? route[1] : null, cancellationToken);
         var churchId = route[1];
         await directory.Get<Church>(churchId, churchId, cancellationToken: cancellationToken);
+        if (route.Length == 3 && route[2] == "purge" && request.Method == "DELETE")
+        {
+            await directory.Purge(churchId, IfMatch(request), cancellationToken);
+            return new(204);
+        }
         if (route.Length == 4 && route[2] == "members" && route[3] == "export" && request.Method == "GET")
             return new(200, await memberCsv.ExportCsv(churchId, cancellationToken), RawText: true);
         if (route.Length == 4 && route[2] == "members" && route[3] == "import-template" && request.Method == "GET")
