@@ -107,6 +107,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/churches/{churchId}/groups/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                churchId: components["parameters"]["churchId"];
+            };
+            cookie?: never;
+        };
+        /** @description CSV of all active groups, top-level groups before their subgroups. ParentName is the parent's Name, blank for top-level groups. */
+        get: operations["exportGroups"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/churches/{churchId}/groups/import-template": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                churchId: components["parameters"]["churchId"];
+            };
+            cookie?: never;
+        };
+        /** @description CSV header row only. */
+        get: operations["groupImportTemplate"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/churches/{churchId}/groups/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                churchId: components["parameters"]["churchId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Best-effort bulk create/update, up to 500 rows per call. A row with a matching Id updates that group; otherwise a group is created. ParentName must reference an active top-level group's Name; a parent row must appear before its children's rows in the same call. Errors are reported per row without aborting the batch. */
+        post: operations["importGroups"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/churches/{churchId}/members": {
         parameters: {
             query?: never;
@@ -139,6 +196,63 @@ export interface paths {
         put: operations["updateMember"];
         post?: never;
         delete: operations["archiveMember"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/churches/{churchId}/members/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                churchId: components["parameters"]["churchId"];
+            };
+            cookie?: never;
+        };
+        /** @description CSV of all active members. ScanCode is not included. Groups are colon-separated group names ("Parent / Child" for subgroups). Custom field columns use the field name. */
+        get: operations["exportMembers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/churches/{churchId}/members/import-template": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                churchId: components["parameters"]["churchId"];
+            };
+            cookie?: never;
+        };
+        /** @description CSV header row only, matching the export schema for this church's active custom fields. */
+        get: operations["memberImportTemplate"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/churches/{churchId}/members/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                churchId: components["parameters"]["churchId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Best-effort bulk create/update, up to 500 rows per call. A row with a matching Id updates that member; otherwise a member is created. Errors are reported per row without aborting the batch. */
+        post: operations["importMembers"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -516,6 +630,76 @@ export interface components {
             occurrenceId: string;
             checkedInCount: number;
         };
+        /** @description Blank Id creates a member; an Id matching an existing member updates it, otherwise a member is created with that Id. */
+        MemberImportRow: {
+            id?: string | null;
+            /** @enum {string|null} */
+            memberType?: "child" | "adult" | null;
+            firstName?: string | null;
+            middleName?: string | null;
+            lastName?: string | null;
+            /** Format: date */
+            birthDate?: string | null;
+            school?: string | null;
+            phone?: string | null;
+            email?: string | null;
+            allergyDetail?: string | null;
+            /** @description Colon-separated active group names, e.g. Youth:Choir. Subgroups use "Parent / Child". */
+            groups?: string | null;
+            guardian1FirstName?: string | null;
+            guardian1MiddleName?: string | null;
+            guardian1LastName?: string | null;
+            guardian1Relationship?: string | null;
+            guardian1OtherRelationship?: string | null;
+            guardian1Phone?: string | null;
+            guardian1Email?: string | null;
+            guardian2FirstName?: string | null;
+            guardian2MiddleName?: string | null;
+            guardian2LastName?: string | null;
+            guardian2Relationship?: string | null;
+            guardian2OtherRelationship?: string | null;
+            guardian2Phone?: string | null;
+            guardian2Email?: string | null;
+            /** @description Keys are active custom-field names for this church. */
+            customFields?: {
+                [key: string]: string;
+            } | null;
+        };
+        MemberImportRowResult: {
+            /** @description 1-based row number, header excluded. */
+            row: number;
+            id?: string | null;
+            /** @enum {string} */
+            action: "created" | "updated" | "error";
+            errors?: string[] | null;
+        };
+        MemberImportResult: {
+            created: number;
+            updated: number;
+            failed: number;
+            results: components["schemas"]["MemberImportRowResult"][];
+        };
+        /** @description Blank Id creates a group; an Id matching an existing group updates it, otherwise a group is created with that Id. */
+        GroupImportRow: {
+            id?: string | null;
+            name?: string | null;
+            /** @description Name of an active top-level group. Blank means this row is itself a top-level group. A parent row must appear before its children's rows in the same import call. */
+            parentName?: string | null;
+        };
+        GroupImportRowResult: {
+            /** @description 1-based row number, header excluded. */
+            row: number;
+            id?: string | null;
+            /** @enum {string} */
+            action: "created" | "updated" | "error";
+            errors?: string[] | null;
+        };
+        GroupImportResult: {
+            created: number;
+            updated: number;
+            failed: number;
+            results: components["schemas"]["GroupImportRowResult"][];
+        };
     };
     responses: {
         /** @description Confirmed attendance and minimal member identity */
@@ -864,6 +1048,81 @@ export interface operations {
             default: components["responses"]["Problem"];
         };
     };
+    exportGroups: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                churchId: components["parameters"]["churchId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description CSV export */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    groupImportTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                churchId: components["parameters"]["churchId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description CSV template */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    importGroups: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                churchId: components["parameters"]["churchId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    rows: components["schemas"]["GroupImportRow"][];
+                };
+            };
+        };
+        responses: {
+            /** @description Import summary */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupImportResult"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
     listMembers: {
         parameters: {
             query?: {
@@ -958,6 +1217,81 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    exportMembers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                churchId: components["parameters"]["churchId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description CSV export */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    memberImportTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                churchId: components["parameters"]["churchId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description CSV template */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    importMembers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                churchId: components["parameters"]["churchId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    rows: components["schemas"]["MemberImportRow"][];
+                };
+            };
+        };
+        responses: {
+            /** @description Import summary */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberImportResult"];
+                };
             };
             default: components["responses"]["Problem"];
         };

@@ -44,6 +44,8 @@ public static class Configuration
         services.AddSingleton<DirectoryService>();
         services.AddSingleton<EventService>();
         services.AddSingleton<CheckInService>();
+        services.AddSingleton<MemberCsvService>();
+        services.AddSingleton<GroupCsvService>();
         return services;
     }
 }

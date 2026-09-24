@@ -32,3 +32,9 @@ export type ScanStatus = {
   checkedIn: boolean;
   receipt: Attendance | null;
 };
+export type MemberImportRow = Schemas["MemberImportRow"];
+export type MemberImportRowResult = Schemas["MemberImportRowResult"];
+export type MemberImportResult = Schemas["MemberImportResult"];
+export type GroupImportRow = Schemas["GroupImportRow"];
+export type GroupImportRowResult = Schemas["GroupImportRowResult"];
+export type GroupImportResult = Schemas["GroupImportResult"];

@@ -9,6 +9,7 @@ import { ApiError, message } from "../api/client";
 import type { Church, CustomField, Group, Member } from "../api/types";
 import { memberInput, memberSchema, normalizeScanCode, type MemberFormValues } from "../domain";
 import { generateScanCode, ScanCard, ScanInput } from "../ScanCode";
+import MembersImportExport from "./MembersImportExport";
 import {
   Button,
   DateField,
@@ -56,6 +57,7 @@ export default function Members() {
   const [groupId, setGroupId] = useState("");
   const [editing, setEditing] = useState<Member | "new" | null>(null);
   const [notice, setNotice] = useState("");
+  const [importExportOpen, setImportExportOpen] = useState(false);
   useFocusEffect(useCallback(() => () => setNotice(""), []));
   const path = churchPath(churchId, "members");
   const query = useList<Member>(path, {
@@ -76,11 +78,18 @@ export default function Members() {
       onRefresh={() => void query.refetch()}
       refreshing={query.isRefetching}
       actions={
-        <IconButton
-          icon="person-add-outline"
-          label="Add member"
-          onPress={() => setEditing("new")}
-        />
+        <>
+          <IconButton
+            icon="swap-vertical-outline"
+            label="Import or export CSV"
+            onPress={() => setImportExportOpen(true)}
+          />
+          <IconButton
+            icon="person-add-outline"
+            label="Add member"
+            onPress={() => setEditing("new")}
+          />
+        </>
       }
     >
       <SearchBox
@@ -153,6 +162,13 @@ export default function Members() {
           }}
         />
       )}
+      {importExportOpen && (
+        <MembersImportExport
+          churchId={churchId}
+          onClose={() => setImportExportOpen(false)}
+          onImported={() => void client.invalidateQueries({ queryKey: [path] })}
+        />
+      )}
     </Page>
   );
 }
@@ -170,7 +186,11 @@ function defaults(member?: Member): MemberFormValues {
     school: member?.school ?? "",
     phone: member?.phone ?? "",
     email: member?.email ?? "",
-    guardian1: member?.guardian1 ? { ...member.guardian1, middleName: member.guardian1.middleName ?? "", otherRelationship: member.guardian1.otherRelationship ?? "" } : { firstName: "", middleName: "", lastName: "", relationship: "Mother", otherRelationship: "", phone: "", email: "" },
+    guardian1: member?.guardian1
+      ? { ...member.guardian1, middleName: member.guardian1.middleName ?? "", otherRelationship: member.guardian1.otherRelationship ?? "" }
+      : member?.memberType === "adult"
+        ? undefined
+        : { firstName: "", middleName: "", lastName: "", relationship: "Mother", otherRelationship: "", phone: "", email: "" },
     guardian2: member?.guardian2 ? { ...member.guardian2, middleName: member.guardian2.middleName ?? "", otherRelationship: member.guardian2.otherRelationship ?? "" } : undefined,
     groupIds: member?.groupIds ?? [],
     customFields: member?.customFields ?? {},

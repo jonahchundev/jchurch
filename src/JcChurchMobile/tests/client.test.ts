@@ -6,6 +6,7 @@ import {
 } from "../src/api/api-url";
 import { ApiError, createApi, queryString } from "../src/api/client";
 import { attendanceRange, describeRecurrence, localToUtc, memberInput, memberSchema, normalizeScanCode, timeZoneLabel } from "../src/domain";
+import { splitGroupImportRow, splitImportRow } from "../src/csvSchema";
 
 describe("API contracts", () => {
   it("selects arbitrary platform API bases and preserves web paths", () => {
@@ -66,6 +67,57 @@ describe("API contracts", () => {
     expect(
       queryString({ continuationToken: "a+b/==", includeArchived: false }),
     ).toBe("continuationToken=a%2Bb%2F%3D%3D&includeArchived=false");
+  });
+  it("fetches raw CSV text without JSON parsing", async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response("Id,FirstName\n"));
+    const text = await createApi("http://localhost", fetcher).text(
+      "/churches/one/members/export",
+    );
+    expect(text).toBe("Id,FirstName\n");
+    expect(fetcher.mock.calls[0]?.[0]).toBe(
+      "http://localhost/churches/one/members/export",
+    );
+    expect(fetcher.mock.calls[0]?.[1]).toMatchObject({ method: "GET" });
+  });
+  it("surfaces problem details when a CSV export request fails", async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue(new Response('{"detail":"Not found"}', { status: 404 }));
+    await expect(
+      createApi("", fetcher).text("/churches/one/members/export"),
+    ).rejects.toMatchObject({ status: 404, message: "Not found" });
+  });
+  it("posts import rows as JSON to the bulk member import endpoint", async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue(
+        new Response('{"created":1,"updated":0,"failed":0,"results":[]}'),
+      );
+    const result = await createApi("", fetcher).importMembers("church", [
+      { firstName: "Ada", lastName: "Lovelace", memberType: "adult" },
+    ]);
+    expect(result).toMatchObject({ created: 1, updated: 0, failed: 0 });
+    expect(fetcher.mock.calls[0]?.[0]).toBe("/churches/church/members/import");
+    expect(fetcher.mock.calls[0]?.[1]).toMatchObject({
+      method: "POST",
+      body: '{"rows":[{"firstName":"Ada","lastName":"Lovelace","memberType":"adult"}]}',
+    });
+  });
+  it("posts import rows as JSON to the bulk group import endpoint", async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue(
+        new Response('{"created":1,"updated":0,"failed":0,"results":[]}'),
+      );
+    const result = await createApi("", fetcher).importGroups("church", [
+      { name: "Youth" },
+    ]);
+    expect(result).toMatchObject({ created: 1, updated: 0, failed: 0 });
+    expect(fetcher.mock.calls[0]?.[0]).toBe("/churches/church/groups/import");
+    expect(fetcher.mock.calls[0]?.[1]).toMatchObject({
+      method: "POST",
+      body: '{"rows":[{"name":"Youth"}]}',
+    });
   });
   it("sends exact ETags and writable fields on replacement", async () => {
     const fetcher = vi.fn().mockResolvedValue(new Response('{"name":"New"}'));
@@ -144,6 +196,48 @@ describe("API contracts", () => {
       createApi("", fetcher).save("/churches/one", { name: "New" }, "old"),
     ).rejects.toMatchObject({ status: 412 });
     expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("member CSV import row parsing", () => {
+  it("maps fixed CSV columns and treats unknown columns as custom fields", () => {
+    const row = splitImportRow({
+      Id: "member_1",
+      MemberType: "adult",
+      FirstName: "Ada",
+      MiddleName: "",
+      LastName: "Lovelace",
+      Groups: "Youth:Choir",
+      "Favorite Color": "Teal",
+    });
+    expect(row).toMatchObject({
+      id: "member_1",
+      memberType: "adult",
+      firstName: "Ada",
+      middleName: undefined,
+      lastName: "Lovelace",
+      groups: "Youth:Choir",
+      customFields: { "Favorite Color": "Teal" },
+    });
+  });
+  it("drops an invalid memberType instead of guessing", () => {
+    expect(splitImportRow({ MemberType: "grownup" }).memberType).toBeUndefined();
+  });
+  it("omits customFields entirely when there are no extra columns", () => {
+    expect(splitImportRow({ FirstName: "Ada" }).customFields).toBeUndefined();
+  });
+});
+
+describe("group CSV import row parsing", () => {
+  it("maps Id, Name, and ParentName columns", () => {
+    expect(
+      splitGroupImportRow({ Id: "group_1", Name: "Choir", ParentName: "Youth" }),
+    ).toEqual({ id: "group_1", name: "Choir", parentName: "Youth" });
+  });
+  it("leaves parentName undefined for a top-level group row", () => {
+    expect(
+      splitGroupImportRow({ Name: "Youth", ParentName: "" }).parentName,
+    ).toBeUndefined();
   });
 });
 
