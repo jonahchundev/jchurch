@@ -1,6 +1,8 @@
 name: Verify Development API
 on:
   push:
+  paths:
+    - 'src/jchurchFunction/**'
   pull_request:
 permissions:
   contents: read
