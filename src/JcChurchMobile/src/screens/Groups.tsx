@@ -8,6 +8,7 @@ import { api, churchPath, useAll } from "../api/hooks";
 import { ApiError, message } from "../api/client";
 import type { Group } from "../api/types";
 import { nameSchema } from "../domain";
+import GroupsImportExport from "./GroupsImportExport";
 import {
   Button,
   Field,
@@ -44,6 +45,7 @@ function ChurchGroups({ churchId }: { churchId: string }) {
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<Editing>(null);
   const [notice, setNotice] = useState("");
+  const [importExportOpen, setImportExportOpen] = useState(false);
   const path = churchPath(churchId, "groups");
   const query = useAll<Group>(path, { includeArchived: true });
   const groups = query.isSuccess ? query.data : [];
@@ -66,6 +68,11 @@ function ChurchGroups({ churchId }: { churchId: string }) {
       refreshing={query.isRefetching}
       actions={
         <>
+        <IconButton
+          icon="swap-vertical-outline"
+          label="Import or export CSV"
+          onPress={() => setImportExportOpen(true)}
+        />
         <IconButton
           icon="refresh-outline"
           label="Refresh groups"
@@ -142,6 +149,13 @@ function ChurchGroups({ churchId }: { churchId: string }) {
             setNotice(archived ? "Group archived." : "Group saved.");
             await client.invalidateQueries({ queryKey: [path] });
           }}
+        />
+      )}
+      {importExportOpen && (
+        <GroupsImportExport
+          churchId={churchId}
+          onClose={() => setImportExportOpen(false)}
+          onImported={() => void client.invalidateQueries({ queryKey: [path] })}
         />
       )}
     </Page>
@@ -230,6 +244,7 @@ function GroupEditor({
               editable={!locked}
               maxLength={200}
               error={fieldState.error?.message}
+              required
             />
           )}
         />

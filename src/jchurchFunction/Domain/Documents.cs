@@ -17,6 +17,8 @@ public abstract record Document
 public sealed record Church : Document
 {
     public string Name { get; init; } = "";
+    public bool ScanCodesEnabled { get; init; } = true;
+    public string? ScanCodeFormat { get; init; }
 }
 
 public sealed record Group : Document
@@ -27,6 +29,8 @@ public sealed record Group : Document
 
 public sealed record Member : Document
 {
+    public string MemberType { get; init; } = "";
+    public string? AllergyDetail { get; init; }
     public string? ScanCode { get; init; }
     public string? ScanCodeFormat { get; init; }
     [JsonIgnore]
@@ -40,8 +44,21 @@ public sealed record Member : Document
     public string? School { get; init; }
     public string? Phone { get; init; }
     public string? Email { get; init; }
+    public Guardian? Guardian1 { get; init; }
+    public Guardian? Guardian2 { get; init; }
     public string[] GroupIds { get; init; } = [];
     public Dictionary<string, JsonElement> CustomFields { get; init; } = [];
+}
+
+public sealed record Guardian
+{
+    public string FirstName { get; init; } = "";
+    public string? MiddleName { get; init; }
+    public string LastName { get; init; } = "";
+    public string Relationship { get; init; } = "";
+    public string? OtherRelationship { get; init; }
+    public string Phone { get; init; } = "";
+    public string Email { get; init; } = "";
 }
 
 public sealed record CustomField : Document
@@ -57,6 +74,7 @@ public sealed record ChurchEvent : Document
     public string TimeZone { get; init; } = "UTC";
     public int DurationMinutes { get; init; } = 60;
     public string? RecurrenceRule { get; init; }
+    public string[] GroupIds { get; init; } = [];
 }
 
 public sealed record Occurrence : Document
@@ -67,6 +85,7 @@ public sealed record Occurrence : Document
     public bool Cancelled { get; init; }
     public bool Archived { get; init; }
     public bool Overridden { get; init; }
+    public string[] GroupIds { get; init; } = [];
 }
 
 public sealed record Attendance : Document

@@ -179,6 +179,7 @@ function CustomFieldEditor({
               editable={!locked}
               maxLength={200}
               error={fieldState.error?.message}
+              required
             />
           )}
         />
@@ -191,6 +192,7 @@ function CustomFieldEditor({
               value={input.value}
               onChange={input.onChange}
               disabled={!!current || locked}
+              required
               options={Object.entries(typeLabels).map(([value, label]) => ({ value, label }))}
             />
           )}

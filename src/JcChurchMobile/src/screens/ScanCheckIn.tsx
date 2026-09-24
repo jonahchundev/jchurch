@@ -8,11 +8,12 @@ import { ScanInput, useScanActive } from "../ScanCode";
 import { sessionTime } from "../domain";
 import { Button, Heading, Label, Notice, styles } from "../ui";
 
-export default function ScanCheckIn({ churchId, eventId, occurrenceId, timeZone, onLocked }: {
+export default function ScanCheckIn({ churchId, eventId, occurrenceId, timeZone, format, onLocked }: {
   churchId: string;
   eventId: string;
   occurrenceId: string;
   timeZone: string;
+  format: "qr" | "code128";
   onLocked: (locked: boolean) => void;
 }) {
   const client = useQueryClient();
@@ -95,7 +96,7 @@ export default function ScanCheckIn({ churchId, eventId, occurrenceId, timeZone,
   return <View style={styles.stack}>
     <Heading>Scan check-in</Heading>
     <Label>{busy ? "Processing scan" : pending ? "Confirmation pending" : closed ? "Scanning stopped" : "Ready to scan"}</Label>
-    <ScanInput disabled={busy || !!pending || closed || now < retryAt} onScan={code => void process(code)} />
+    <ScanInput format={format} disabled={busy || !!pending || closed || now < retryAt} onScan={code => void process(code)} />
     {result && <Notice>{`${result.member.firstName} ${result.member.lastName}: ${result.already ? "Already checked in" : "Checked in"} · ${sessionTime(result.receipt.checkedInAt, timeZone)}`}</Notice>}
     {!!error && <Notice error>{error}</Notice>}
     {now < retryAt && <Label>Retry in {Math.ceil((retryAt - now) / 1000)} seconds.</Label>}

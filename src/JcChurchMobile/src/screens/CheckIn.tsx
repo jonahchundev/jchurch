@@ -7,6 +7,7 @@ import { api, churchPath, useAll, useDebounce, useList } from "../api/hooks";
 import { ApiError, message } from "../api/client";
 import type {
   Attendance,
+  Church,
   ChurchEvent,
   Group,
   Member,
@@ -16,6 +17,7 @@ import { memberAge, sessionTime } from "../domain";
 import {
   Button,
   Heading,
+  IconButton,
   Label,
   Notice,
   Page,
@@ -247,7 +249,14 @@ function ActiveCheckIn({
   occurrence: Occurrence;
   onChange: () => void;
 }) {
+  const router = useRouter();
   const client = useQueryClient();
+  const church = useQuery({
+    queryKey: [churchPath(event.churchId)],
+    queryFn: ({ signal }) => api.get<Church>(churchPath(event.churchId), signal),
+  });
+  const scanEnabled = church.data?.scanCodesEnabled ?? true;
+  const scanFormat = church.data?.scanCodeFormat ?? "qr";
   const [view, setView] = useState("members");
   const [scanLocked, setScanLocked] = useState(false);
   const [search, setSearch] = useState("");
@@ -255,12 +264,16 @@ function ActiveCheckIn({
   const [retryAt, setRetryAt] = useState(0);
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
+    if (!scanEnabled && view === "scan") setView("members");
+  }, [scanEnabled, view]);
+  useEffect(() => {
     if (!retryAt) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [retryAt]);
   const query = useList<Member>(churchPath(event.churchId, "members"), {
     search: useDebounce(search),
+    groupIds: occurrence.groupIds?.join(",") ?? "",
   });
   const groups = useAll<Group>(churchPath(event.churchId, "groups"), {
     includeArchived: true,
@@ -298,37 +311,34 @@ function ActiveCheckIn({
           styles.notice,
           {
             borderRadius: 0,
-            paddingHorizontal: 20,
-            flexDirection: "column",
-            gap: 4,
+            paddingHorizontal: 12,
+            paddingVertical: 8,
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
           },
         ]}
       >
-        <Heading>{event.name}</Heading>
-        <Label small>
-          {sessionTime(occurrence.startsAt, event.timeZone)} · {event.timeZone}
-        </Label>
-        <Button
-          secondary
-          icon="swap-horizontal-outline"
-          disabled={checkIn.isPending || scanLocked}
-          onPress={onChange}
-        >
-          Change session
-        </Button>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Heading>{event.name}</Heading>
+          <Label small>{sessionTime(occurrence.startsAt, event.timeZone)} · {event.timeZone}</Label>
+          <Label small muted>{occurrence.groupIds?.length ? `Groups: ${occurrence.groupIds.map(id => groups.data?.find(group => group.id === id)?.name ?? id).join(", ")}` : "Groups: All members"}</Label>
+        </View>
+        <IconButton icon="swap-horizontal-outline" label="Change session" disabled={checkIn.isPending || scanLocked} onPress={onChange} />
+        <IconButton icon="create-outline" label="Edit session" disabled={checkIn.isPending || scanLocked} onPress={() => router.navigate({ pathname: "/church/[churchId]/events", params: { churchId: event.churchId, eventId: event.id, occurrenceId: occurrence.id, returnTo: "check-in" } })} />
       </View>
-      <Page title="Check-in">
+      <Page title="Check-in" compact>
         <ViewTabs
           value={view}
           onChange={next => { if (!scanLocked && !checkIn.isPending) setView(next); }}
           options={[
             { value: "members", label: "Find members" },
-            { value: "scan", label: "Scan" },
+            ...(scanEnabled ? [{ value: "scan", label: "Scan" }] : []),
             { value: "attendance", label: "Checked in" },
           ]}
         />
         {view === "scan" ? (
-          <ScanCheckIn churchId={event.churchId} eventId={event.id} occurrenceId={occurrence.id} timeZone={event.timeZone} onLocked={setScanLocked} />
+          <ScanCheckIn churchId={event.churchId} eventId={event.id} occurrenceId={occurrence.id} timeZone={event.timeZone} format={scanFormat} onLocked={setScanLocked} />
         ) : view === "attendance" ? (
           <AttendanceList
             churchId={event.churchId}

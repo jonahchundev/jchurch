@@ -32,9 +32,10 @@ export function useScanActive() {
   return focused && foreground;
 }
 
-export function ScanInput({ onScan, disabled = false }: {
+export function ScanInput({ onScan, disabled = false, format = "qr" }: {
   onScan: (code: string) => void;
   disabled?: boolean;
+  format?: "qr" | "code128";
 }) {
   const active = useScanActive();
   const [permission, requestPermission] = useCameraPermissions();
@@ -98,7 +99,7 @@ export function ScanInput({ onScan, disabled = false }: {
             style={{ width: "100%", aspectRatio: 4 / 3, maxHeight: 340 }}
             facing={facing}
             enableTorch={torch && facing === "back"}
-            barcodeScannerSettings={{ barcodeTypes: ["qr", "code128"] }}
+            barcodeScannerSettings={{ barcodeTypes: [format] }}
             onBarcodeScanned={result => accept(result.data)}
             onMountError={() => { setCamera(false); setError("Camera unavailable. Enter a code or try again."); }}
           />

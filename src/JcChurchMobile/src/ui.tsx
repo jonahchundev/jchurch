@@ -159,6 +159,7 @@ export function Page({
   eyebrow,
   children,
   actions,
+  compact = false,
   refreshing = false,
   onRefresh,
 }: {
@@ -168,6 +169,7 @@ export function Page({
   actions?: ReactNode;
   refreshing?: boolean;
   onRefresh?: () => void;
+  compact?: boolean;
 }) {
   return (
     <SafeAreaView edges={["left", "right", "bottom"]} style={styles.page}>
@@ -188,7 +190,7 @@ export function Page({
             ) : undefined
           }
         >
-          <View style={styles.pageHeading}>
+          <View style={[styles.pageHeading, compact && styles.pageHeadingCompact]}>
             <View style={{ flex: 1, gap: 5 }}>
               {!!eyebrow && <Text style={styles.eyebrow}>{eyebrow}</Text>}
               <Text accessibilityRole="header" style={styles.title}>
@@ -365,13 +367,15 @@ export function QueryState({
 export function Field({
   label,
   error,
+  required = false,
   ...props
-}: ComponentProps<typeof TextInput> & { label: string; error?: string }) {
+}: ComponentProps<typeof TextInput> & { label: string; error?: string; required?: boolean }) {
+  const accessibilityLabel = required ? `${label} (required)` : label;
   return (
     <View style={styles.field}>
-      <Label small>{label}</Label>
+      <Label small>{label}{required && <Text style={styles.required}> *</Text>}</Label>
       <TextInput
-        accessibilityLabel={label}
+        accessibilityLabel={accessibilityLabel}
         placeholderTextColor={colors.muted}
         {...props}
         style={[
@@ -395,19 +399,22 @@ export function Select({
   onChange,
   options,
   disabled = false,
+  required = false,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   options: { label: string; value: string }[];
   disabled?: boolean;
+  required?: boolean;
 }) {
+  const accessibilityLabel = required ? `${label} (required)` : label;
   return (
     <View style={styles.field}>
-      <Label small>{label}</Label>
+      <Label small>{label}{required && <Text style={styles.required}> *</Text>}</Label>
       <View style={styles.select}>
         <Picker
-          accessibilityLabel={label}
+          accessibilityLabel={accessibilityLabel}
           selectedValue={value}
           onValueChange={onChange}
           enabled={!disabled}
@@ -430,16 +437,18 @@ export function Toggle({
   value,
   onChange,
   disabled = false,
+  compact = false,
 }: {
   label: string;
   value: boolean;
   onChange: (value: boolean) => void;
   disabled?: boolean;
+  compact?: boolean;
 }) {
   return (
-    <View style={styles.toggle}>
+    <View style={[styles.toggle, compact && styles.toggleCompact]}>
       <View style={{ flex: 1 }}>
-        <Label>{label}</Label>
+        <Label small={compact}>{label}</Label>
       </View>
       <Switch
         accessibilityLabel={label}
@@ -508,6 +517,7 @@ function WebPickerField({
   onChange,
   error,
   disabled,
+  required = false,
 }: {
   label: string;
   type: "date" | "datetime-local" | "time";
@@ -515,6 +525,7 @@ function WebPickerField({
   onChange: (value: string) => void;
   error?: string;
   disabled: boolean;
+  required?: boolean;
 }) {
   const inputStyle: CSSProperties = {
     boxSizing: "border-box",
@@ -530,9 +541,10 @@ function WebPickerField({
   };
   return (
     <View style={styles.field}>
-      <Label small>{label}</Label>
+      <Label small>{label}{required && <Text style={styles.required}> *</Text>}</Label>
       {createElement("input", {
-        "aria-label": label,
+        "aria-label": required ? `${label} (required)` : label,
+        "aria-required": required,
         disabled,
         onChange: (event: ChangeEvent<HTMLInputElement>) =>
           onChange(event.currentTarget.value),
@@ -551,6 +563,7 @@ export function DateField({
   time = false,
   error,
   disabled = false,
+  required = false,
 }: {
   label: string;
   value: string;
@@ -558,6 +571,7 @@ export function DateField({
   time?: boolean;
   error?: string;
   disabled?: boolean;
+  required?: boolean;
 }) {
   const [mode, setMode] = useState<"date" | "time" | null>(null);
   const displayDate = (input: string) => {
@@ -573,13 +587,14 @@ export function DateField({
         onChange={onChange}
         disabled={disabled}
         error={error}
+        required={required}
       />
     );
   const parsed = DateTime.fromISO(value || DateTime.local().toISO()!);
   const date = parsed.isValid ? parsed.toJSDate() : new Date();
   return (
     <View style={styles.field}>
-      <Label small>{label}</Label>
+      <Label small>{label}{required && <Text style={styles.required}> *</Text>}</Label>
       <View style={styles.actions}>
         <Button
           secondary
@@ -633,12 +648,14 @@ export function TimeField({
   onChange,
   error,
   disabled = false,
+  required = false,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   error?: string;
   disabled?: boolean;
+  required?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const parsed = DateTime.fromFormat(value, "HH:mm");
@@ -652,11 +669,12 @@ export function TimeField({
         onChange={onChange}
         disabled={disabled}
         error={error}
+        required={required}
       />
     );
   return (
     <View style={styles.field}>
-      <Label small>{label}</Label>
+      <Label small>{label}{required && <Text style={styles.required}> *</Text>}</Label>
       <Button
         secondary
         disabled={disabled}
@@ -770,6 +788,7 @@ export const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 6,
   },
+  pageHeadingCompact: { paddingTop: 0, paddingBottom: 0, gap: 8 },
   title: {
     fontFamily: "Manrope_700Bold",
     fontSize: 28,
@@ -884,6 +903,7 @@ export const styles = StyleSheet.create({
   },
   empty: { alignItems: "center", paddingVertical: 36, gap: 14 },
   field: { gap: 6 },
+  required: { color: colors.danger, fontFamily: "Manrope_600SemiBold" },
   input: {
     minHeight: 48,
     borderWidth: 1,
@@ -913,6 +933,7 @@ export const styles = StyleSheet.create({
     gap: 16,
     minHeight: 48,
   },
+  toggleCompact: { minHeight: 34, gap: 8 },
   sheetHeader: {
     flexDirection: "row",
     alignItems: "center",

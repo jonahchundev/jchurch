@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -7,7 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { DateTime } from "luxon";
 import { api, churchPath, useAll, useDebounce, useList } from "../api/hooks";
 import { ApiError, message } from "../api/client";
-import type { ChurchEvent, EventInput, Occurrence, OccurrenceCheckInCount } from "../api/types";
+import type { ChurchEvent, EventInput, Group, Occurrence, OccurrenceCheckInCount } from "../api/types";
 import {
   describeRecurrence,
   eventSchema,
@@ -33,16 +33,40 @@ import {
   Sheet,
   styles,
   TimeField,
+  Toggle,
 } from "../ui";
 
 export default function Events() {
-  const { churchId } = useLocalSearchParams<{ churchId: string }>();
+  const { churchId, eventId: requestedEventId, occurrenceId: requestedOccurrenceId, returnTo } = useLocalSearchParams<{ churchId: string; eventId?: string; occurrenceId?: string; returnTo?: string }>();
+  const router = useRouter();
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<ChurchEvent | "new" | null>(null);
   const query = useList<ChurchEvent>(churchPath(churchId, "events"), {
     search: useDebounce(search),
   });
   const events = query.data?.pages.flatMap((page) => page.items) ?? [];
+  const closeEditor = () => {
+    if (returnTo === "check-in" && requestedEventId && requestedOccurrenceId) {
+      setEditing(null);
+      router.setParams({ eventId: "", occurrenceId: "", returnTo: "" });
+      router.replace({
+        pathname: "/church/[churchId]/check-in",
+        params: {
+          churchId,
+          eventId: requestedEventId,
+          occurrenceId: requestedOccurrenceId,
+        },
+      });
+      return;
+    }
+    setEditing(null);
+  };
+  useEffect(() => {
+    if (requestedEventId) {
+      const requested = events.find(event => event.id === requestedEventId);
+      if (requested) setEditing(requested);
+    }
+  }, [events, requestedEventId]);
   return (
     <Page
       title="Events"
@@ -93,7 +117,8 @@ export default function Events() {
         <EventEditor
           event={editing === "new" ? undefined : editing}
           churchId={churchId}
-          onClose={() => setEditing(null)}
+          initialOccurrenceId={editing === "new" ? undefined : requestedOccurrenceId}
+          onClose={closeEditor}
         />
       )}
     </Page>
@@ -107,26 +132,37 @@ function defaults(event?: ChurchEvent): EventFormValues {
     timeZone: event?.timeZone ?? "",
     durationMinutes: String(event?.durationMinutes ?? 60),
     recurrenceRule: event?.recurrenceRule ?? "",
+    groupIds: event?.groupIds ?? [],
   };
 }
 
 function EventEditor({
   event,
   churchId,
+  initialOccurrenceId,
   onClose,
 }: {
   event?: ChurchEvent;
   churchId: string;
+  initialOccurrenceId?: string;
   onClose: () => void;
 }) {
   const router = useRouter();
   const client = useQueryClient();
   const [current, setCurrent] = useState(event);
   const [selected, setSelected] = useState<Occurrence | null>(null);
+  const occurrenceQuery = useAll<Occurrence>(event ? churchPath(churchId, `events/${event.id}/occurrences`) : "");
+  useEffect(() => {
+    if (initialOccurrenceId) {
+      const requested = occurrenceQuery.data?.find(item => item.id === initialOccurrenceId);
+      if (requested) setSelected(requested);
+    }
+  }, [initialOccurrenceId, occurrenceQuery.data]);
   const [notice, setNotice] = useState("");
   const [confirmArchive, setConfirmArchive] = useState(false);
   const [startDate, setStartDate] = useState(event?.localStart.slice(0, 10) ?? "");
   const [startTime, setStartTime] = useState(event?.localStart.slice(11, 16) ?? "");
+  const groups = useAll<Group>(churchPath(churchId, "groups"), { includeArchived: false });
   const form = useForm<EventFormValues>({
     resolver: zodResolver(eventSchema),
     defaultValues: defaults(event),
@@ -148,6 +184,7 @@ function EventEditor({
             timeZone: current.timeZone,
             durationMinutes: current.durationMinutes,
             recurrenceRule: current.recurrenceRule,
+            groupIds: values.groupIds,
           }
         : {
             name: values.name,
@@ -155,6 +192,7 @@ function EventEditor({
             timeZone: values.timeZone,
             durationMinutes: Number(values.durationMinutes),
             recurrenceRule: values.recurrenceRule || null,
+            groupIds: values.groupIds,
           };
       return api.save<ChurchEvent>(
         churchPath(churchId, `events${current ? `/${current.id}` : ""}`),
@@ -227,7 +265,7 @@ function EventEditor({
       <SessionEditor
         event={current}
         occurrence={selected}
-        onClose={() => setSelected(null)}
+        onClose={onClose}
         onBegin={begin}
       />
     );
@@ -250,6 +288,24 @@ function EventEditor({
               error={fieldState.error?.message}
               editable={!busy && (!current || current.active)}
               maxLength={200}
+              required
+            />
+          )}
+        />
+        <Controller
+          control={form.control}
+          name="timeZone"
+          render={({ field, fieldState }) => (
+            <Select
+              label="Timezone"
+              value={field.value}
+              onChange={field.onChange}
+              disabled={!!current || busy}
+              required
+              options={[
+                { value: "", label: "Choose a timezone" },
+                ...usTimeZones,
+              ]}
             />
           )}
         />
@@ -264,6 +320,7 @@ function EventEditor({
                 onChange={(date) => updateStart(date, startTime)}
                 error={fieldState.error?.message}
                 disabled={!!current || busy}
+                required
               />
               <TimeField
                 label="Start time"
@@ -271,24 +328,9 @@ function EventEditor({
                 onChange={(time) => updateStart(startDate, time)}
                 error={fieldState.error?.message}
                 disabled={!!current || busy}
+                required
               />
             </>
-          )}
-        />
-        <Controller
-          control={form.control}
-          name="timeZone"
-          render={({ field, fieldState }) => (
-            <Select
-              label="Timezone"
-              value={field.value}
-              onChange={field.onChange}
-              disabled={!!current || busy}
-              options={[
-                { value: "", label: "Choose a timezone" },
-                ...usTimeZones,
-              ]}
-            />
           )}
         />
         <Controller
@@ -302,6 +344,7 @@ function EventEditor({
               keyboardType="number-pad"
               error={fieldState.error?.message}
               editable={!current && !busy}
+              required
             />
           )}
         />
@@ -321,6 +364,7 @@ function EventEditor({
                 value={field.value}
                 onChange={field.onChange}
                 disabled={busy}
+                required
                 options={[
                   { value: "", label: "Does not repeat" },
                   ...["DAILY", "WEEKLY", "MONTHLY", "YEARLY"].map(
@@ -333,6 +377,26 @@ function EventEditor({
               />
             )
           }
+        />
+        <Heading>Check-in groups</Heading>
+        <Controller
+          control={form.control}
+          name="groupIds"
+          render={({ field }) => (
+            <View style={{ gap: 2 }}>
+              {(groups.data ?? []).map(group => (
+                <Toggle
+                  key={group.id}
+                  compact
+                  label={`${group.parentGroupId ? `${groups.data?.find(parent => parent.id === group.parentGroupId)?.name ?? "Group"} / ` : ""}${group.name}`}
+                  value={field.value.includes(group.id)}
+                  disabled={busy}
+                  onChange={checked => field.onChange(checked ? [...field.value, group.id] : field.value.filter(id => id !== group.id))}
+                />
+              ))}
+              {!groups.isPending && !groups.data?.length && <Label muted>No groups defined. All members can check in.</Label>}
+            </View>
+          )}
         />
         {error && <Notice error>{message(error)}</Notice>}
         {stale && (
@@ -529,6 +593,7 @@ function SessionEditor({
   const [current, setCurrent] = useState(occurrence);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
+  const groups = useAll<Group>(churchPath(event.churchId, "groups"), { includeArchived: false });
   const initial = (session: Occurrence) => ({
     startsAt: DateTime.fromISO(session.startsAt)
       .setZone(event.timeZone)
@@ -538,16 +603,23 @@ function SessionEditor({
       .toFormat("yyyy-MM-dd'T'HH:mm"),
     cancelled: session.cancelled,
     archived: session.archived,
+    groupIds: session.groupIds ?? event.groupIds ?? [],
   });
   const form = useForm({ defaultValues: initial(occurrence) });
-  const editable = Date.parse(current.startsAt) > Date.now() && event.active;
+  const scheduleEditable = Date.parse(current.startsAt) > Date.now() && event.active;
+  const groupsEditable = Date.parse(current.endsAt) > Date.now() && event.active && !current.cancelled && !current.archived;
+  const saveable = scheduleEditable || groupsEditable;
   const save = useMutation({
     mutationFn: (values: ReturnType<typeof initial>) => {
-      const startsAt = localToUtc(values.startsAt, event.timeZone);
-      const endsAt = localToUtc(values.endsAt, event.timeZone);
+      const startsAt = scheduleEditable
+        ? localToUtc(values.startsAt, event.timeZone)
+        : current.startsAt;
+      const endsAt = scheduleEditable
+        ? localToUtc(values.endsAt, event.timeZone)
+        : current.endsAt;
       const duration = Date.parse(endsAt) - Date.parse(startsAt);
       if (
-        Date.parse(startsAt) <= Date.now() ||
+        (scheduleEditable && Date.parse(startsAt) <= Date.now()) ||
         duration <= 0 ||
         duration > 7 * 86400000
       )
@@ -556,7 +628,13 @@ function SessionEditor({
         );
       return api.save<Occurrence>(
         churchPath(event.churchId, `occurrences/${current.id}`),
-        { startsAt, endsAt, cancelled: values.cancelled, archived: values.archived },
+        {
+          startsAt,
+          endsAt,
+          cancelled: scheduleEditable ? values.cancelled : current.cancelled,
+          archived: current.archived,
+          groupIds: values.groupIds,
+        },
         current._etag,
       );
     },
@@ -564,6 +642,10 @@ function SessionEditor({
       setCurrent(result);
       form.reset(initial(result));
       setConfirmCancel(false);
+      client.setQueryData<Occurrence>(
+        [churchPath(event.churchId, `occurrences/${result.id}`)],
+        result,
+      );
       await client.invalidateQueries({
         queryKey: [
           churchPath(event.churchId, `events/${event.id}/occurrences`),
@@ -625,7 +707,7 @@ function SessionEditor({
               time
               value={field.value}
               onChange={field.onChange}
-              disabled={!editable || save.isPending}
+              disabled={!scheduleEditable || save.isPending}
             />
           )}
         />
@@ -638,8 +720,28 @@ function SessionEditor({
               time
               value={field.value}
               onChange={field.onChange}
-              disabled={!editable || save.isPending}
+              disabled={!scheduleEditable || save.isPending}
             />
+          )}
+        />
+        <Heading>Check-in groups</Heading>
+        <Controller
+          control={form.control}
+          name="groupIds"
+          render={({ field }) => (
+            <View style={{ gap: 2 }}>
+              {(groups.data ?? []).map(group => (
+                <Toggle
+                  key={group.id}
+                  compact
+                  label={`${group.parentGroupId ? `${groups.data?.find(parent => parent.id === group.parentGroupId)?.name ?? "Group"} / ` : ""}${group.name}`}
+                  value={field.value.includes(group.id)}
+                  disabled={!groupsEditable || save.isPending}
+                  onChange={checked => field.onChange(checked ? [...field.value, group.id] : field.value.filter(id => id !== group.id))}
+                />
+              ))}
+              {!groups.isPending && !groups.data?.length && <Label muted>No groups selected. All members can check in.</Label>}
+            </View>
           )}
         />
         {current.cancelled && <Notice>This occurrence is cancelled and unavailable for check-in.</Notice>}
@@ -662,7 +764,7 @@ function SessionEditor({
           </>
         )}
         {save.isSuccess && <Notice>Session saved.</Notice>}
-        {editable && !current.archived && (
+        {saveable && !current.archived && (
           <Button
             icon="save-outline"
             busy={save.isPending}
@@ -674,7 +776,7 @@ function SessionEditor({
             Save session
           </Button>
         )}
-        {editable && current.cancelled && (
+        {scheduleEditable && current.cancelled && (
           <Button
             secondary
             busy={save.isPending}
@@ -684,7 +786,7 @@ function SessionEditor({
             Restore occurrence
           </Button>
         )}
-        {editable && !current.cancelled && !confirmCancel && (
+        {scheduleEditable && !current.cancelled && !confirmCancel && (
           <Button
             danger
             icon="close-circle-outline"

@@ -8,7 +8,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { api, churchPath, useDebounce, useList } from "../api/hooks";
 import { ApiError, message } from "../api/client";
 import type { Church } from "../api/types";
-import { nameSchema } from "../domain";
+import { churchSchema } from "../domain";
 import {
   Button,
   Field,
@@ -20,7 +20,9 @@ import {
   Row,
   SearchBox,
   Sheet,
+  Select,
   styles,
+  Toggle,
 } from "../ui";
 
 const lastKey = "jchurch:last-church-id";
@@ -170,12 +172,12 @@ function ChurchEditor({
 }) {
   const [current, setCurrent] = useState(church);
   const [confirmArchive, setConfirmArchive] = useState(false);
-  const form = useForm<{ name: string }>({
-    resolver: zodResolver(nameSchema),
-    defaultValues: { name: church?.name ?? "" },
+  const form = useForm<{ name: string; scanCodesEnabled: boolean; scanCodeFormat: "qr" | "code128" }>({
+    resolver: zodResolver(churchSchema),
+    defaultValues: { name: church?.name ?? "", scanCodesEnabled: church?.scanCodesEnabled ?? true, scanCodeFormat: church?.scanCodeFormat ?? "qr" },
   });
   const save = useMutation({
-    mutationFn: (value: { name: string }) =>
+    mutationFn: (value: { name: string; scanCodesEnabled: boolean; scanCodeFormat: "qr" | "code128" }) =>
       api.save<Church>(
         current ? churchPath(current.id) : "/churches",
         value,
@@ -191,7 +193,7 @@ function ChurchEditor({
     mutationFn: () => api.get<Church>(churchPath(current!.id)),
     onSuccess: (result) => {
       setCurrent(result);
-      form.reset({ name: result.name });
+      form.reset({ name: result.name, scanCodesEnabled: result.scanCodesEnabled ?? true, scanCodeFormat: result.scanCodeFormat ?? "qr" });
       save.reset();
       archive.reset();
       setConfirmArchive(false);
@@ -209,6 +211,13 @@ function ChurchEditor({
       <View style={styles.stack}>
         <Controller
           control={form.control}
+          name="scanCodesEnabled"
+          render={({ field }) => (
+            <Toggle label="Use QR/barcode scanning and member cards" value={field.value} onChange={field.onChange} disabled={busy} />
+          )}
+        />
+        <Controller
+          control={form.control}
           name="name"
           render={({ field, fieldState }) => (
             <Field
@@ -219,6 +228,21 @@ function ChurchEditor({
               maxLength={200}
               error={fieldState.error?.message}
               editable={!busy}
+              required
+            />
+          )}
+        />
+        <Controller
+          control={form.control}
+          name="scanCodeFormat"
+          render={({ field, fieldState }) => (
+            <Select
+              label="Member card and scan format"
+              value={field.value}
+              onChange={field.onChange}
+              disabled={busy}
+              required
+              options={[{ value: "qr", label: "QR code" }, { value: "code128", label: "Barcode (Code 128)" }]}
             />
           )}
         />

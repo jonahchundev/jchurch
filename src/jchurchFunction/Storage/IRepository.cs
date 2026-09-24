@@ -13,6 +13,7 @@ public sealed record Query
     public string? OccurrenceId { get; init; }
     public string? MemberId { get; init; }
     public string? GroupId { get; init; }
+        public string[] GroupIds { get; init; } = [];
     public string? ParentGroupId { get; init; }
     public bool IncludeSubgroups { get; init; }
     public bool ActiveOnly { get; init; } = true;
@@ -23,7 +24,7 @@ public sealed record Query
 
     public void Validate()
     {
-        if (PageSize is < 1 or > 200 || Search?.Length > 100 || ContinuationToken?.Length > 32000 || From > To)
+        if (PageSize is < 1 or > 200 || Search?.Length > 100 || GroupIds.Length > 50 || ContinuationToken?.Length > 32000 || From > To)
             throw new ApiException(400, "invalid_query", "Invalid page size, search, continuation token, or date range.");
     }
 
@@ -41,6 +42,11 @@ public sealed record Query
         {
             var field = IncludeSubgroups && document is Attendance ? "inclusiveGroupIds" : "groupIds";
             if (!data.TryGetProperty(field, out var groups) || !groups.EnumerateArray().Any(group => group.GetString() == GroupId)) return false;
+        }
+        if (GroupIds.Length > 0)
+        {
+            var unionField = IncludeSubgroups && document is Attendance ? "inclusiveGroupIds" : "groupIds";
+            if (!data.TryGetProperty(unionField, out var unionGroups) || !unionGroups.EnumerateArray().Any(group => GroupIds.Contains(group.GetString(), StringComparer.Ordinal))) return false;
         }
         var date = document switch { Attendance attendance => attendance.CheckedInAt, Occurrence occurrence => occurrence.StartsAt, _ => (DateTimeOffset?)null };
         return (From is null || date >= From) && (To is null || date < To);

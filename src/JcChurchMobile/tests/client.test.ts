@@ -5,7 +5,8 @@ import {
   selectApiBaseUrl,
 } from "../src/api/api-url";
 import { ApiError, createApi, queryString } from "../src/api/client";
-import { attendanceRange, describeRecurrence, localToUtc, memberSchema, normalizeScanCode, timeZoneLabel } from "../src/domain";
+import { attendanceRange, describeRecurrence, localToUtc, memberInput, memberSchema, normalizeScanCode, timeZoneLabel } from "../src/domain";
+import { splitGroupImportRow, splitImportRow } from "../src/csvSchema";
 
 describe("API contracts", () => {
   it("selects arbitrary platform API bases and preserves web paths", () => {
@@ -66,6 +67,57 @@ describe("API contracts", () => {
     expect(
       queryString({ continuationToken: "a+b/==", includeArchived: false }),
     ).toBe("continuationToken=a%2Bb%2F%3D%3D&includeArchived=false");
+  });
+  it("fetches raw CSV text without JSON parsing", async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response("Id,FirstName\n"));
+    const text = await createApi("http://localhost", fetcher).text(
+      "/churches/one/members/export",
+    );
+    expect(text).toBe("Id,FirstName\n");
+    expect(fetcher.mock.calls[0]?.[0]).toBe(
+      "http://localhost/churches/one/members/export",
+    );
+    expect(fetcher.mock.calls[0]?.[1]).toMatchObject({ method: "GET" });
+  });
+  it("surfaces problem details when a CSV export request fails", async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue(new Response('{"detail":"Not found"}', { status: 404 }));
+    await expect(
+      createApi("", fetcher).text("/churches/one/members/export"),
+    ).rejects.toMatchObject({ status: 404, message: "Not found" });
+  });
+  it("posts import rows as JSON to the bulk member import endpoint", async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue(
+        new Response('{"created":1,"updated":0,"failed":0,"results":[]}'),
+      );
+    const result = await createApi("", fetcher).importMembers("church", [
+      { firstName: "Ada", lastName: "Lovelace", memberType: "adult" },
+    ]);
+    expect(result).toMatchObject({ created: 1, updated: 0, failed: 0 });
+    expect(fetcher.mock.calls[0]?.[0]).toBe("/churches/church/members/import");
+    expect(fetcher.mock.calls[0]?.[1]).toMatchObject({
+      method: "POST",
+      body: '{"rows":[{"firstName":"Ada","lastName":"Lovelace","memberType":"adult"}]}',
+    });
+  });
+  it("posts import rows as JSON to the bulk group import endpoint", async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue(
+        new Response('{"created":1,"updated":0,"failed":0,"results":[]}'),
+      );
+    const result = await createApi("", fetcher).importGroups("church", [
+      { name: "Youth" },
+    ]);
+    expect(result).toMatchObject({ created: 1, updated: 0, failed: 0 });
+    expect(fetcher.mock.calls[0]?.[0]).toBe("/churches/church/groups/import");
+    expect(fetcher.mock.calls[0]?.[1]).toMatchObject({
+      method: "POST",
+      body: '{"rows":[{"name":"Youth"}]}',
+    });
   });
   it("sends exact ETags and writable fields on replacement", async () => {
     const fetcher = vi.fn().mockResolvedValue(new Response('{"name":"New"}'));
@@ -147,6 +199,48 @@ describe("API contracts", () => {
   });
 });
 
+describe("member CSV import row parsing", () => {
+  it("maps fixed CSV columns and treats unknown columns as custom fields", () => {
+    const row = splitImportRow({
+      Id: "member_1",
+      MemberType: "adult",
+      FirstName: "Ada",
+      MiddleName: "",
+      LastName: "Lovelace",
+      Groups: "Youth:Choir",
+      "Favorite Color": "Teal",
+    });
+    expect(row).toMatchObject({
+      id: "member_1",
+      memberType: "adult",
+      firstName: "Ada",
+      middleName: undefined,
+      lastName: "Lovelace",
+      groups: "Youth:Choir",
+      customFields: { "Favorite Color": "Teal" },
+    });
+  });
+  it("drops an invalid memberType instead of guessing", () => {
+    expect(splitImportRow({ MemberType: "grownup" }).memberType).toBeUndefined();
+  });
+  it("omits customFields entirely when there are no extra columns", () => {
+    expect(splitImportRow({ FirstName: "Ada" }).customFields).toBeUndefined();
+  });
+});
+
+describe("group CSV import row parsing", () => {
+  it("maps Id, Name, and ParentName columns", () => {
+    expect(
+      splitGroupImportRow({ Id: "group_1", Name: "Choir", ParentName: "Youth" }),
+    ).toEqual({ id: "group_1", name: "Choir", parentName: "Youth" });
+  });
+  it("leaves parentName undefined for a top-level group row", () => {
+    expect(
+      splitGroupImportRow({ Name: "Youth", ParentName: "" }).parentName,
+    ).toBeUndefined();
+  });
+});
+
 describe("dates and validation", () => {
   it("canonicalizes codes without losing leading zeroes or accepting partial values", () => {
     expect(normalizeScanCode(" 0000-abcd\r\n")).toBe("0000-ABCD");
@@ -156,6 +250,62 @@ describe("dates and validation", () => {
   it("rejects missing names", () => {
     expect(memberSchema.safeParse({}).success).toBe(false);
   });
+  it("requires child guardian contact details and limits other relationships", () => {
+    const base = {
+      memberType: "child" as const,
+      allergyDetail: "",
+      firstName: "Child",
+      lastName: "Test",
+      middleName: "",
+      school: "",
+      phone: "",
+      email: "",
+      birthDate: "",
+      groupIds: [],
+      customFields: {},
+      guardian1: {
+        firstName: "Maria",
+        middleName: "",
+        lastName: "Test",
+        relationship: "Others" as const,
+        otherRelationship: "x".repeat(50),
+        phone: "555-0100",
+        email: "maria@example.com",
+      },
+    };
+    expect(memberSchema.safeParse(base).success).toBe(true);
+    expect(memberSchema.safeParse({ ...base, guardian1: { ...base.guardian1, phone: "" } }).success).toBe(false);
+    expect(memberSchema.safeParse({ ...base, guardian1: { ...base.guardian1, otherRelationship: "x".repeat(51) } }).success).toBe(false);
+  });
+  it("clears stale child-only fields from adult payloads", () => {
+    const values = {
+      memberType: "adult" as const,
+      allergyDetail: "",
+      firstName: "Adult",
+      lastName: "Member",
+      middleName: "",
+      school: "Old school",
+      phone: "",
+      email: "",
+      birthDate: "",
+      groupIds: [],
+      customFields: {},
+      guardian1: {
+        firstName: "Old",
+        middleName: "",
+        lastName: "Guardian",
+        relationship: "Mother" as const,
+        otherRelationship: "",
+        phone: "555-0100",
+        email: "old@example.com",
+      },
+    };
+    const parsed = memberSchema.parse(values);
+    const input = memberInput(parsed, []);
+    expect(input.school).toBeNull();
+    expect(input.guardian1).toBeUndefined();
+    expect(input.guardian2).toBeUndefined();
+  });
   it("converts an event wall time in its timezone", () => {
     expect(localToUtc("2026-09-20T09:00", "America/New_York")).toBe(
       "2026-09-20T13:00:00.000Z",
@@ -164,6 +314,10 @@ describe("dates and validation", () => {
   it("rejects DST gaps and ambiguous times", () => {
     expect(() => localToUtc("2026-03-08T02:30", "America/New_York")).toThrow();
     expect(() => localToUtc("2026-11-01T01:30", "America/New_York")).toThrow();
+  });
+  it("accepts picker-shaped local date/time values in configured timezones", () => {
+    for (const zone of ["UTC", "America/New_York", "America/Chicago", "America/Denver", "America/Phoenix", "America/Los_Angeles", "America/Anchorage", "Pacific/Honolulu"])
+      expect(localToUtc(" 2026-09-24T10:00:00 ", ` ${zone} `)).toMatch(/2026-09-24T/);
   });
   it("uses explicit check-in-time UTC ranges, including future dates", () => {
     expect(attendanceRange("2027-01-10")).toEqual({

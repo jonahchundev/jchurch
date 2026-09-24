@@ -19,6 +19,31 @@ public sealed class DirectoryService(Repositories repositories, TimeProvider clo
 
     public static void Name(string? value, string field) => Require(!string.IsNullOrWhiteSpace(value) && value.Length <= 200, $"{field} is required and must be at most 200 characters.");
 
+    private static Guardian ValidateGuardian(Guardian guardian, string field)
+    {
+        Name(guardian.FirstName, $"{field}.firstName");
+        Name(guardian.LastName, $"{field}.lastName");
+        Require(guardian.MiddleName?.Length is not > 200, $"{field}.middleName is too long.");
+        Require(guardian.Relationship is "Mother" or "Father" or "Grandmother" or "Grandfather" or "Others", $"Invalid {field}.relationship.");
+        if (guardian.Relationship == "Others")
+            Require(!string.IsNullOrWhiteSpace(guardian.OtherRelationship) && guardian.OtherRelationship.Length <= 50, $"{field}.otherRelationship is required and must be at most 50 characters.");
+        else
+            Require(string.IsNullOrWhiteSpace(guardian.OtherRelationship), $"{field}.otherRelationship is only allowed when relationship is Others.");
+        Require(!string.IsNullOrWhiteSpace(guardian.Phone) && guardian.Phone.Length <= 50, $"{field}.phone is required and must be at most 50 characters.");
+        Require(!string.IsNullOrWhiteSpace(guardian.Email) && guardian.Email.Length <= 254 && MailAddress.TryCreate(guardian.Email, out var address) && address.Address == guardian.Email, $"Invalid {field}.email.");
+        return guardian with
+        {
+            FirstName = guardian.FirstName.Trim(),
+            MiddleName = guardian.MiddleName?.Trim(),
+            LastName = guardian.LastName.Trim(),
+            OtherRelationship = guardian.OtherRelationship?.Trim(),
+            Phone = guardian.Phone.Trim(),
+            Email = guardian.Email.Trim()
+        };
+    }
+
+    private static bool EmptyGuardian(Guardian? guardian) => guardian is not null && string.IsNullOrWhiteSpace(guardian.FirstName) && string.IsNullOrWhiteSpace(guardian.MiddleName) && string.IsNullOrWhiteSpace(guardian.LastName) && string.IsNullOrWhiteSpace(guardian.Relationship) && string.IsNullOrWhiteSpace(guardian.OtherRelationship) && string.IsNullOrWhiteSpace(guardian.Phone) && string.IsNullOrWhiteSpace(guardian.Email);
+
     public async Task<T> Get<T>(string churchId, string id, bool active = false, CancellationToken cancellationToken = default) where T : Document
     {
         ValidateId(churchId);
@@ -51,7 +76,8 @@ public sealed class DirectoryService(Repositories repositories, TimeProvider clo
         {
             case Church church:
                 Name(church.Name, "name");
-                document = church with { Name = church.Name.Trim(), SearchText = church.Name.Trim() };
+                Require(church.ScanCodeFormat is null or "qr" or "code128", "scanCodeFormat must be qr or code128.");
+                document = church with { Name = church.Name.Trim(), ScanCodeFormat = church.ScanCodeFormat ?? "qr", SearchText = church.Name.Trim() };
                 break;
             case Group group:
                 Name(group.Name, "name");
@@ -72,11 +98,33 @@ public sealed class DirectoryService(Repositories repositories, TimeProvider clo
                         ScanCodeFormat = member.ScanCodeFormatSpecified || member.ScanCodeFormat is not null ? member.ScanCodeFormat : previous.ScanCodeFormat
                     };
                 member = ScanCodes.Normalize(member);
+                Require(member.MemberType is "child" or "adult", "memberType must be child or adult.");
                 Name(member.FirstName, "firstName");
                 Name(member.LastName, "lastName");
-                Require(member.MiddleName?.Length is not > 200 && member.School?.Length is not > 200 && member.Phone?.Length is not > 50, "Optional member fields are too long.");
+                Require(member.MiddleName?.Length is not > 200 && member.School?.Length is not > 200 && member.Phone?.Length is not > 50 && member.AllergyDetail?.Length is not > 1000, "Optional member fields are too long.");
                 Require(member.BirthDate is null || member.BirthDate <= DateOnly.FromDateTime(clock.GetUtcNow().UtcDateTime), "birthDate cannot be in the future.");
                 Require(member.Email is null || (member.Email.Length <= 254 && MailAddress.TryCreate(member.Email, out var address) && address.Address == member.Email), "Invalid email address.");
+                if (member.MemberType == "child")
+                {
+                    Require(member.Guardian1 is not null, "guardian1 is required for child members.");
+                    member = member with
+                    {
+                        Guardian1 = ValidateGuardian(member.Guardian1!, "guardian1"),
+                        Guardian2 = member.Guardian2 is null ? null : ValidateGuardian(member.Guardian2, "guardian2")
+                    };
+                }
+                else
+                {
+                    member = member with
+                    {
+                        School = string.IsNullOrWhiteSpace(member.School) ? null : member.School,
+                        Guardian1 = EmptyGuardian(member.Guardian1) ? null : member.Guardian1,
+                        Guardian2 = EmptyGuardian(member.Guardian2) ? null : member.Guardian2
+                    };
+                    Require(member.Guardian1 is null && member.Guardian2 is null, "Adults cannot have guardian information.");
+                    Require(string.IsNullOrWhiteSpace(member.School), "Adults cannot have school information.");
+                    member = member with { School = null };
+                }
                 Require(member.GroupIds is not null && member.GroupIds.Length <= 50 && member.GroupIds.All(groupId => !string.IsNullOrWhiteSpace(groupId)), "At most 50 valid group IDs are allowed.");
                 foreach (var groupId in member.GroupIds!.Distinct()) await Get<Group>(churchId!, groupId, true, cancellationToken);
                 Require(member.CustomFields is not null && member.CustomFields.Count <= 50, "At most 50 custom fields are allowed.");
@@ -93,7 +141,7 @@ public sealed class DirectoryService(Repositories repositories, TimeProvider clo
                     };
                     Require(valid, $"Invalid value for custom field {field.Key}.");
                 }
-                document = member with { FirstName = member.FirstName.Trim(), LastName = member.LastName.Trim(), GroupIds = member.GroupIds!.Distinct().ToArray(), SearchText = $"{member.FirstName.Trim()} {member.MiddleName} {member.LastName.Trim()}" };
+                document = member with { FirstName = member.FirstName.Trim(), LastName = member.LastName.Trim(), MiddleName = member.MiddleName?.Trim(), School = member.School?.Trim(), AllergyDetail = member.AllergyDetail?.Trim(), GroupIds = member.GroupIds!.Distinct().ToArray(), SearchText = $"{member.FirstName.Trim()} {member.MiddleName} {member.LastName.Trim()}" };
                 break;
             case CustomField field:
                 Name(field.Name, "name");

@@ -12,9 +12,11 @@ using Microsoft.Extensions.Logging;
 
 namespace JChurch.Functions;
 
-public sealed class ChurchApi(Repositories repositories, DirectoryService directory, EventService events, CheckInService checkIns, ILogger<ChurchApi> logger)
+public sealed class ChurchApi(Repositories repositories, DirectoryService directory, EventService events, CheckInService checkIns, MemberCsvService memberCsv, GroupCsvService groupCsv, ILogger<ChurchApi> logger)
 {
-    private sealed record Result(int Status, object? Body = null, string? Location = null);
+    private sealed record Result(int Status, object? Body = null, string? Location = null, bool RawText = false);
+    private sealed record MemberImportRequest(MemberImportRow[] Rows);
+    private sealed record GroupImportRequest(GroupImportRow[] Rows);
     private sealed record CheckInRequest(string MemberId);
     private sealed record ScanRequest(string ScanCode);
     private static readonly System.Threading.RateLimiting.TokenBucketRateLimiter ScanLimiter = new(new()
@@ -22,7 +24,7 @@ public sealed class ChurchApi(Repositories repositories, DirectoryService direct
         TokenLimit = 120, TokensPerPeriod = 120, ReplenishmentPeriod = TimeSpan.FromMinutes(1),
         AutoReplenishment = true, QueueLimit = 0
     });
-    private sealed record OverrideRequest(DateTimeOffset StartsAt, DateTimeOffset EndsAt, bool Cancelled, bool Archived);
+    private sealed record OverrideRequest(DateTimeOffset StartsAt, DateTimeOffset EndsAt, bool Cancelled, bool Archived, string[]? GroupIds);
 
     [Function("ChurchApi")]
     public async Task<HttpResponseData> Run([HttpTrigger(AuthorizationLevel.Anonymous, "get", "post", "put", "delete", Route = "v1/{*path}")] HttpRequestData request,
@@ -35,7 +37,12 @@ public sealed class ChurchApi(Repositories repositories, DirectoryService direct
             response.Headers.Add("Cache-Control", "no-store");
             if (result.Body is Document document) response.Headers.Add("ETag", document.ETag);
             if (result.Location is not null) response.Headers.Add("Location", result.Location);
-            if (result.Body is not null)
+            if (result.RawText && result.Body is string text)
+            {
+                response.Headers.Add("Content-Type", "text/csv; charset=utf-8");
+                await response.WriteStringAsync(text, cancellationToken);
+            }
+            else if (result.Body is not null)
             {
                 response.Headers.Add("Content-Type", "application/json; charset=utf-8");
                 await JsonSerializer.SerializeAsync(response.Body, result.Body, result.Body.GetType(), Json.Options, cancellationToken);
@@ -72,6 +79,24 @@ public sealed class ChurchApi(Repositories repositories, DirectoryService direct
         if (route.Length <= 2) return await Resource<Church>(request, route.Length == 2 ? route[1] : "", route.Length == 2 ? route[1] : null, cancellationToken);
         var churchId = route[1];
         await directory.Get<Church>(churchId, churchId, cancellationToken: cancellationToken);
+        if (route.Length == 4 && route[2] == "members" && route[3] == "export" && request.Method == "GET")
+            return new(200, await memberCsv.ExportCsv(churchId, cancellationToken), RawText: true);
+        if (route.Length == 4 && route[2] == "members" && route[3] == "import-template" && request.Method == "GET")
+            return new(200, await memberCsv.ImportTemplate(churchId, cancellationToken), RawText: true);
+        if (route.Length == 4 && route[2] == "members" && route[3] == "import" && request.Method == "POST")
+        {
+            var input = await ImportBody(request, cancellationToken);
+            return new(200, await memberCsv.Import(churchId, input.Rows, cancellationToken));
+        }
+        if (route.Length == 4 && route[2] == "groups" && route[3] == "export" && request.Method == "GET")
+            return new(200, await groupCsv.ExportCsv(churchId, cancellationToken), RawText: true);
+        if (route.Length == 4 && route[2] == "groups" && route[3] == "import-template" && request.Method == "GET")
+            return new(200, groupCsv.ImportTemplate(), RawText: true);
+        if (route.Length == 4 && route[2] == "groups" && route[3] == "import" && request.Method == "POST")
+        {
+            var input = await ImportGroupBody(request, cancellationToken);
+            return new(200, await groupCsv.Import(churchId, input.Rows, cancellationToken));
+        }
         if (route.Length <= 4)
         {
             var id = route.Length == 4 ? route[3] : null;
@@ -157,7 +182,7 @@ public sealed class ChurchApi(Repositories repositories, DirectoryService direct
             if (request.Method != "PUT" || id is null) throw MethodNotAllowed();
             var etag = IfMatch(request);
             var input = await Body<OverrideRequest>(request, cancellationToken);
-            return new(200, await events.Override(churchId, id, input.StartsAt, input.EndsAt, input.Cancelled, input.Archived, etag, cancellationToken));
+            return new(200, await events.Override(churchId, id, input.StartsAt, input.EndsAt, input.Cancelled, input.Archived, etag, cancellationToken, input.GroupIds));
         }
         if ((request.Method == "POST" && id is null) || (request.Method == "PUT" && id is not null))
         {
@@ -207,16 +232,47 @@ public sealed class ChurchApi(Repositories repositories, DirectoryService direct
         return input;
     }
 
+    private static async Task<MemberImportRequest> ImportBody(HttpRequestData request, CancellationToken cancellationToken)
+    {
+        var input = await BulkImportBody<MemberImportRequest>(request, cancellationToken);
+        if (input.Rows.Length > MemberCsvService.MaxImportRows)
+            throw new ApiException(400, "too_many_rows", $"At most {MemberCsvService.MaxImportRows} rows are allowed per import.");
+        return input;
+    }
+
+    private static async Task<GroupImportRequest> ImportGroupBody(HttpRequestData request, CancellationToken cancellationToken)
+    {
+        var input = await BulkImportBody<GroupImportRequest>(request, cancellationToken);
+        if (input.Rows.Length > GroupCsvService.MaxImportRows)
+            throw new ApiException(400, "too_many_rows", $"At most {GroupCsvService.MaxImportRows} rows are allowed per import.");
+        return input;
+    }
+
+    private static async Task<T> BulkImportBody<T>(HttpRequestData request, CancellationToken cancellationToken)
+    {
+        if (!request.Headers.TryGetValues("Content-Type", out var types) || !types.Any(type => type.Split(';')[0].Trim().Equals("application/json", StringComparison.OrdinalIgnoreCase)))
+            throw new ApiException(415, "unsupported_media_type", "Use application/json.");
+        using var buffer = new MemoryStream();
+        var chunk = new byte[8192];
+        int count;
+        while ((count = await request.Body.ReadAsync(chunk, cancellationToken)) > 0)
+        {
+            if (buffer.Length + count > 5 * 1024 * 1024) throw new ApiException(413, "body_too_large", "Maximum import body is 5 MiB.");
+            await buffer.WriteAsync(chunk.AsMemory(0, count), cancellationToken);
+        }
+        return JsonSerializer.Deserialize<T>(buffer.ToArray(), Json.Options) ?? throw new JsonException();
+    }
+
     private Query ParseQuery(NameValueCollection values, string churchId, bool attendance = false)
     {
-        var allowed = new[] { "search", "eventId", "occurrenceId", "memberId", "groupId", "parentGroupId", "includeSubgroups", "includeArchived", "from", "to", "pageSize", "continuationToken" };
+        var allowed = new[] { "search", "eventId", "occurrenceId", "memberId", "groupId", "groupIds", "parentGroupId", "includeSubgroups", "includeArchived", "from", "to", "pageSize", "continuationToken" };
         foreach (var key in values.AllKeys)
-            if (key is null || !allowed.Contains(key) || values.GetValues(key)?.Length != 1) throw new ApiException(400, "invalid_query", "Unknown or repeated query parameter.");
+            if (key is null || !allowed.Contains(key) || (key != "groupIds" && values.GetValues(key)?.Length != 1)) throw new ApiException(400, "invalid_query", "Unknown or repeated query parameter.");
         bool Flag(string name) => values[name] is not { } value ? false : bool.TryParse(value, out var parsed) ? parsed : throw new ApiException(400, "invalid_query", $"{name} must be true or false.");
         DateTimeOffset? Date(string name) => values[name] is not { } value ? null : DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed) ? parsed.ToUniversalTime() : throw new ApiException(400, "invalid_query", $"Invalid {name} timestamp.");
         var query = new Query
         {
-            ChurchId = churchId, Search = values["search"], EventId = values["eventId"], OccurrenceId = values["occurrenceId"], MemberId = values["memberId"], GroupId = values["groupId"], ParentGroupId = values["parentGroupId"],
+            ChurchId = churchId, Search = values["search"], EventId = values["eventId"], OccurrenceId = values["occurrenceId"], MemberId = values["memberId"], GroupId = values["groupId"], GroupIds = (values.GetValues("groupIds") ?? []).SelectMany(value => value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)).Distinct(StringComparer.Ordinal).ToArray(), ParentGroupId = values["parentGroupId"],
             IncludeSubgroups = Flag("includeSubgroups"), ActiveOnly = !Flag("includeArchived"), From = Date("from"), To = Date("to"), ContinuationToken = values["continuationToken"],
             PageSize = values["pageSize"] is not { } size ? 50 : int.TryParse(size, out var parsed) ? parsed : throw new ApiException(400, "invalid_query", "Invalid pageSize.")
         };

@@ -1,4 +1,4 @@
-import type { Attendance, Filters, Page, ScanResult, ScanStatus } from "./types";
+import type { Attendance, Filters, GroupImportResult, GroupImportRow, MemberImportResult, MemberImportRow, Page, ScanResult, ScanStatus } from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -112,6 +112,58 @@ export function createApi(
     },
     async archive(path: string, etag: string) {
       await request(path, { method: "DELETE", etag });
+    },
+    async text(path: string, signal?: AbortSignal): Promise<string> {
+      const controller = new AbortController();
+      const abort = () => controller.abort();
+      signal?.addEventListener("abort", abort, { once: true });
+      if (signal?.aborted) abort();
+      const timer = setTimeout(abort, timeoutMs);
+      try {
+        const response = await fetcher(`${baseUrl.replace(/\/$/, "")}${path}`, {
+          method: "GET",
+          headers: { Accept: "text/csv" },
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          const problem = (await response.json().catch(() => ({}))) as {
+            detail?: string;
+          };
+          throw new ApiError(
+            response.status,
+            problem.detail ?? `Request failed (${response.status}).`,
+            Number(response.headers.get("Retry-After")) || 0,
+          );
+        }
+        return await response.text();
+      } catch (error) {
+        if (error instanceof ApiError) throw error;
+        throw new ApiError(
+          0,
+          "Connection interrupted. The operation could not be confirmed.",
+        );
+      } finally {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", abort);
+      }
+    },
+    async importMembers(churchId: string, rows: MemberImportRow[]) {
+      const path = `/churches/${encodeURIComponent(churchId)}/members/import`;
+      return (
+        await request<MemberImportResult>(path, {
+          method: "POST",
+          body: { rows },
+        })
+      ).data;
+    },
+    async importGroups(churchId: string, rows: GroupImportRow[]) {
+      const path = `/churches/${encodeURIComponent(churchId)}/groups/import`;
+      return (
+        await request<GroupImportResult>(path, {
+          method: "POST",
+          body: { rows },
+        })
+      ).data;
     },
     async scanCheckIn(churchId: string, occurrenceId: string, scanCode: string, signal?: AbortSignal) {
       const path = `/churches/${encodeURIComponent(churchId)}/occurrences/${encodeURIComponent(occurrenceId)}/scan-check-ins`;
