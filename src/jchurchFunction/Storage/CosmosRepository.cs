@@ -217,7 +217,8 @@ public sealed class CosmosRepository<T>(CosmosClient client, CosmosSettings sett
             clauses.Add($"c.{dateField} < @to");
             parameters["@to"] = UtcDateTimeConverter.Format(query.To.Value);
         }
-        var definition = new QueryDefinition($"SELECT * FROM c WHERE {string.Join(" AND ", clauses)} ORDER BY c.id");
+        var orderBy = typeof(T) == typeof(Member) ? "c.lastName, c.firstName, c.id" : "c.id";
+        var definition = new QueryDefinition($"SELECT * FROM c WHERE {string.Join(" AND ", clauses)} ORDER BY {orderBy}");
         foreach (var parameter in parameters) definition.WithParameter(parameter.Key, parameter.Value);
         return definition;
     }

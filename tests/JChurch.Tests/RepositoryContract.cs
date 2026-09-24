@@ -10,8 +10,9 @@ internal static class RepositoryContract
     {
         var church = churchId ?? $"contract_{Guid.NewGuid():N}";
         var otherChurch = otherChurchId ?? $"contract_{Guid.NewGuid():N}";
-        var original = (await members.Create(new Member { Id = "member_a", ChurchId = church, SearchText = "Ada Test", GroupIds = ["group"] })).Item;
-        await members.Create(new Member { Id = "member_b", ChurchId = church, SearchText = "Ada Test", GroupIds = ["group"] });
+        // Names sort opposite of ids, proving Search() orders by name and not by id.
+        var original = (await members.Create(new Member { Id = "member_a", ChurchId = church, SearchText = "Ada Test", FirstName = "Zoe", LastName = "Zephyr", GroupIds = ["group"] })).Item;
+        await members.Create(new Member { Id = "member_b", ChurchId = church, SearchText = "Ada Test", FirstName = "Amy", LastName = "Aaron", GroupIds = ["group"] });
         await members.Create(new Member { Id = "member_c", ChurchId = church, SearchText = "Other", GroupIds = ["other"] });
         Assert.Null(await members.Get(otherChurch, original.Id));
         var updated = await members.Replace(original with { FirstName = "Updated" }, original.ETag);
@@ -30,7 +31,7 @@ internal static class RepositoryContract
             if (token is not null)
                 Assert.Equal(400, (await Assert.ThrowsAsync<ApiException>(() => members.Search(query with { ChurchId = otherChurch, ContinuationToken = token }))).Status);
         } while (token is not null);
-        Assert.Equal(new[] { "member_a", "member_b" }, ids);
+        Assert.Equal(new[] { "member_b", "member_a" }, ids);
         updated = await members.Replace(updated with { ScanCode = "contract-old", ScanCodeFormat = "qr" }, updated.ETag);
         Assert.Equal(updated.Id, (await members.ResolveScanCode(church, "CONTRACT-old"))!.Id);
         Assert.Null(await members.ResolveScanCode(otherChurch, "CONTRACT-old"));

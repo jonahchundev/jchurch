@@ -36,6 +36,15 @@ import {
   Toggle,
 } from "../ui";
 
+function groupLabel(group: Group, groups: Group[]) {
+  const parent = group.parentGroupId ? groups.find(candidate => candidate.id === group.parentGroupId) : undefined;
+  return `${parent ? `${parent.name} / ` : ""}${group.name}`;
+}
+
+function sortedGroups(groups: Group[]) {
+  return [...groups].sort((a, b) => groupLabel(a, groups).localeCompare(groupLabel(b, groups), undefined, { sensitivity: "base" }));
+}
+
 export default function Events() {
   const { churchId, eventId: requestedEventId, occurrenceId: requestedOccurrenceId, returnTo } = useLocalSearchParams<{ churchId: string; eventId?: string; occurrenceId?: string; returnTo?: string }>();
   const router = useRouter();
@@ -384,7 +393,7 @@ function EventEditor({
           name="groupIds"
           render={({ field }) => (
             <View style={{ gap: 2 }}>
-              {(groups.data ?? []).map(group => (
+              {sortedGroups(groups.data ?? []).map(group => (
                 <Toggle
                   key={group.id}
                   compact
@@ -730,7 +739,7 @@ function SessionEditor({
           name="groupIds"
           render={({ field }) => (
             <View style={{ gap: 2 }}>
-              {(groups.data ?? []).map(group => (
+              {sortedGroups(groups.data ?? []).map(group => (
                 <Toggle
                   key={group.id}
                   compact

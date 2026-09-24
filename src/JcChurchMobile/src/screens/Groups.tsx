@@ -51,6 +51,7 @@ function ChurchGroups({ churchId }: { churchId: string }) {
   const groups = query.isSuccess ? query.data : [];
   const term = search.trim().toLocaleLowerCase();
   const matches = (group: Group) => group.name.toLocaleLowerCase().includes(term);
+  const byName = (a: Group, b: Group) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
   const childrenByParent = new Map<string, Group[]>();
   for (const group of groups) {
     if (!group.parentGroupId) continue;
@@ -58,8 +59,9 @@ function ChurchGroups({ churchId }: { churchId: string }) {
     children.push(group);
     childrenByParent.set(group.parentGroupId, children);
   }
+  for (const children of childrenByParent.values()) children.sort(byName);
   const topLevel = groups.filter(group => !group.parentGroupId &&
-    (matches(group) || childrenByParent.get(group.id)?.some(matches)));
+    (matches(group) || childrenByParent.get(group.id)?.some(matches))).sort(byName);
   return (
     <Page
       title="Groups"

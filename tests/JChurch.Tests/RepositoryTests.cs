@@ -45,4 +45,26 @@ public class RepositoryTests
         Assert.Null(second.ContinuationToken);
         await Assert.ThrowsAsync<ApiException>(() => repository.Search(query with { ChurchId = "other", ContinuationToken = first.ContinuationToken }));
     }
+
+    [Fact]
+    public async Task MembersPaginateInAscendingNameOrder()
+    {
+        var repository = new InMemoryRepository<Member>();
+        var names = new[] { "Zack Jones", "Aaron Smith", "Mary Smith", "Amy Aaron", "Bob Young" };
+        foreach (var (name, index) in names.Select((name, index) => (name, index)))
+        {
+            var parts = name.Split(' ');
+            await repository.Create(new Member { Id = $"member_{index}", ChurchId = "church", FirstName = parts[0], LastName = parts[1] });
+        }
+        var query = new Query { ChurchId = "church", PageSize = 2 };
+        var seen = new List<string>();
+        string? token = null;
+        do
+        {
+            var page = await repository.Search(query with { ContinuationToken = token });
+            seen.AddRange(page.Items.Select(item => $"{item.LastName} {item.FirstName}"));
+            token = page.ContinuationToken;
+        } while (token is not null);
+        Assert.Equal(names.Select(name => { var p = name.Split(' '); return $"{p[1]} {p[0]}"; }).OrderBy(name => name, StringComparer.Ordinal), seen);
+    }
 }
