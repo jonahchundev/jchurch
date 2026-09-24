@@ -73,6 +73,9 @@ public sealed class InMemoryRepository<T> : IRepository<T> where T : Document
         }
     }
 
+    // Ascending order: Members by name, everything else by id; \u001F sorts below any name character so ordinal string compare preserves tuple order.
+    private static string SortKey(T document) => document is Member member ? $"{member.LastName}\u001F{member.FirstName}\u001F{member.Id}" : document.Id;
+
     public Task<Page<T>> Search(Query query, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -81,10 +84,10 @@ public sealed class InMemoryRepository<T> : IRepository<T> where T : Document
         lock (gate)
         {
             var results = documents.Values.Where(query.Matches)
-                .Where(document => after is null || string.CompareOrdinal(document.Id, after) > 0)
-                .OrderBy(document => document.Id, StringComparer.Ordinal).Take(query.PageSize + 1).ToArray();
+                .Where(document => after is null || string.CompareOrdinal(SortKey(document), after) > 0)
+                .OrderBy(SortKey, StringComparer.Ordinal).Take(query.PageSize + 1).ToArray();
             var page = results.Take(query.PageSize).Select(Json.Clone).ToArray();
-            return Task.FromResult(new Page<T>(page, results.Length > query.PageSize ? Cursor.Encode<T>(query, page[^1].Id) : null));
+            return Task.FromResult(new Page<T>(page, results.Length > query.PageSize ? Cursor.Encode<T>(query, SortKey(results[query.PageSize - 1])) : null));
         }
     }
 
