@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ApiError } from "./api/client";
+import { AuthProvider } from "./auth/AuthContext";
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -32,7 +33,9 @@ export function Providers({ children }: { children: ReactNode }) {
   }, []);
   return (
     <SafeAreaProvider>
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>{children}</AuthProvider>
+      </QueryClientProvider>
     </SafeAreaProvider>
   );
 }

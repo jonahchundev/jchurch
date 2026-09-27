@@ -7,6 +7,24 @@ import {
 import { ApiError, createApi, queryString } from "../src/api/client";
 import { attendanceRange, describeRecurrence, localToUtc, memberInput, memberSchema, normalizeScanCode, publicMemberInput, publicRegistrationDefaults, publicRegistrationSchema, timeZoneLabel } from "../src/domain";
 import { splitGroupImportRow, splitImportRow } from "../src/csvSchema";
+import { isValidTemporaryAdminCredentials } from "../src/auth/temporary-auth";
+
+describe("temporary admin credentials", () => {
+  const configured = { username: "admin", password: "abc123" };
+
+  it("accepts only the exact configured username and password", () => {
+    expect(isValidTemporaryAdminCredentials("admin", "abc123", configured)).toBe(true);
+    expect(isValidTemporaryAdminCredentials("Admin", "abc123", configured)).toBe(false);
+    expect(isValidTemporaryAdminCredentials("admin", "ABC123", configured)).toBe(false);
+    expect(isValidTemporaryAdminCredentials("admin", "wrong", configured)).toBe(false);
+  });
+
+  it("fails closed when either configured value is missing", () => {
+    expect(isValidTemporaryAdminCredentials("admin", "abc123", {})).toBe(false);
+    expect(isValidTemporaryAdminCredentials("admin", "abc123", { username: "admin" })).toBe(false);
+    expect(isValidTemporaryAdminCredentials("admin", "abc123", { username: "", password: "abc123" })).toBe(false);
+  });
+});
 
 describe("API contracts", () => {
   it("selects arbitrary platform API bases and preserves web paths", () => {

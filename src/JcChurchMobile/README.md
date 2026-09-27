@@ -6,6 +6,15 @@ Expo React Native client for iOS and Android, with a browser preview for local d
 
 Use synthetic data only. The existing API is unauthenticated; selecting a church is not access control. Authentication, staff permissions, church-management permissions, and approved backend access remain release prerequisites. This project does not change backend deployment or network safeguards.
 
+The staff UI currently has a temporary client-only login configured through
+`EXPO_PUBLIC_ADMIN_USERNAME` and `EXPO_PUBLIC_ADMIN_PASSWORD` (the checked-in development example
+uses `admin` / `abc123`). Login persists locally until Logout is selected in Settings. Public
+registration pages remain accessible without logging in.
+
+This is **not security**: Expo public environment values are embedded in the client bundle and the
+anonymous API remains directly callable without the app. Do not use this gate with real member
+data or represent it as production authentication.
+
 ## Run
 
 Use a current Node version supported by Expo SDK 57 and npm. From this folder:

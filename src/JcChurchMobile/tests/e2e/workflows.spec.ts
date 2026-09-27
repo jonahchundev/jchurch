@@ -1,6 +1,12 @@
 import { expect, test } from "@playwright/test";
 import { BarcodeFormat, BinaryBitmap, DecodeHintType, HybridBinarizer, MultiFormatReader, RGBLuminanceSource } from "@zxing/library";
 
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("jchurch:temporary-admin-session:v1", "authenticated");
+  });
+});
+
 const metadata = (id: string, churchId = id) => ({
   id,
   churchId,

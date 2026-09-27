@@ -9,6 +9,7 @@ import { api, churchPath, useDebounce, useList } from "../api/hooks";
 import { ApiError, message } from "../api/client";
 import type { Church } from "../api/types";
 import { churchSchema } from "../domain";
+import { useAuth } from "../auth/AuthContext";
 import {
   Button,
   Field,
@@ -28,6 +29,7 @@ import {
 const lastKey = "jchurch:last-church-id";
 export default function Churches({ manage = false }: { manage?: boolean }) {
   const router = useRouter();
+  const { logout } = useAuth();
   const { selected } = useLocalSearchParams<{ selected?: string }>();
   const client = useQueryClient();
   const [search, setSearch] = useState("");
@@ -58,11 +60,25 @@ export default function Churches({ manage = false }: { manage?: boolean }) {
       refreshing={query.isRefetching}
       actions={
         manage ? (
-          <IconButton
-            icon="add-outline"
-            label="Create church"
-            onPress={() => setEditing("new")}
-          />
+          <>
+            <IconButton
+              icon="add-outline"
+              label="Create church"
+              onPress={() => setEditing("new")}
+            />
+            <IconButton
+              icon="log-out-outline"
+              label="Log out"
+              onPress={() => {
+                void (async () => {
+                  await client.cancelQueries();
+                  client.clear();
+                  await logout();
+                  router.replace("/login");
+                })();
+              }}
+            />
+          </>
         ) : (
           <IconButton
             icon="settings-outline"
