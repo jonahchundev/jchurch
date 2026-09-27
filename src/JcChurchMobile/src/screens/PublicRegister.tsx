@@ -175,11 +175,12 @@ export default function PublicRegister({
     );
   if (done)
     return (
-      <Page title="Registration complete" eyebrow={church.data.name}>
+      <Page title="Thank you!" eyebrow={church.data.name}>
+        <Heading>Thank you for registering{done.name ? ` ${done.name}` : ""}!</Heading>
         <Notice>
-          {done.name} is registered{done.checkedIn ? " and checked in for this session." : "."}
+          {done.name} is registered{done.checkedIn ? " and checked in for this session. " : ". "}
+          We're so glad to have you with us — see you soon!
         </Notice>
-        <Button onPress={() => setDone(null)}>Register another</Button>
       </Page>
     );
   const memberType = form.watch("memberType");
