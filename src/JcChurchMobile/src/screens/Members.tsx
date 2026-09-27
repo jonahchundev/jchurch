@@ -9,6 +9,8 @@ import { ApiError, message } from "../api/client";
 import type { Church, CustomField, Group, Member } from "../api/types";
 import { memberInput, memberSchema, normalizeScanCode, type MemberFormValues } from "../domain";
 import { generateScanCode, ScanCard, ScanInput } from "../ScanCode";
+import { registrationBaseUrl } from "../api/api-url";
+import { RegistrationCode } from "../RegistrationCode";
 import MembersImportExport from "./MembersImportExport";
 import {
   Button,
@@ -58,6 +60,7 @@ export default function Members() {
   const [editing, setEditing] = useState<Member | "new" | null>(null);
   const [notice, setNotice] = useState("");
   const [importExportOpen, setImportExportOpen] = useState(false);
+  const [registrationOpen, setRegistrationOpen] = useState(false);
   useFocusEffect(useCallback(() => () => setNotice(""), []));
   const path = churchPath(churchId, "members");
   const query = useList<Member>(path, {
@@ -88,6 +91,11 @@ export default function Members() {
             icon="person-add-outline"
             label="Add member"
             onPress={() => setEditing("new")}
+          />
+          <IconButton
+            icon="qr-code-outline"
+            label="New registration"
+            onPress={() => setRegistrationOpen(true)}
           />
         </>
       }
@@ -167,6 +175,14 @@ export default function Members() {
           churchId={churchId}
           onClose={() => setImportExportOpen(false)}
           onImported={() => void client.invalidateQueries({ queryKey: [path] })}
+        />
+      )}
+      {registrationOpen && (
+        <RegistrationCode
+          title="Member registration"
+          subtitle="Scan or share to register a new member."
+          url={`${registrationBaseUrl()}/register/${churchId}`}
+          onClose={() => setRegistrationOpen(false)}
         />
       )}
     </Page>
