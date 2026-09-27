@@ -28,6 +28,7 @@ import {
   Row,
   SearchBox,
   SegmentedControl,
+  Select,
   Sheet,
   styles,
   ViewTabs,
@@ -268,6 +269,7 @@ function ActiveCheckIn({
   const [registrationOpen, setRegistrationOpen] = useState(false);
   const [nameSort, setNameSort] = useState("asc");
   const [createdOnSort, setCreatedOnSort] = useState("");
+  const [groupId, setGroupId] = useState("");
   const [sortOpen, setSortOpen] = useState(false);
   useEffect(() => {
     if (!scanEnabled && view === "scan") setView("members");
@@ -280,6 +282,7 @@ function ActiveCheckIn({
   const query = useList<Member>(churchPath(event.churchId, "members"), {
     search: useDebounce(search),
     groupIds: occurrence.groupIds?.join(",") ?? "",
+    groupId: groupId || undefined,
     nameSort,
     createdOnSort: createdOnSort || undefined,
     pageSize: 200,
@@ -370,7 +373,7 @@ function ActiveCheckIn({
                   placeholder="Search members to check in"
                 />
               </View>
-              <IconButton icon="swap-vertical-outline" label="Sort members" onPress={() => setSortOpen(true)} />
+              <IconButton icon="swap-vertical-outline" label="Sort and filter members" onPress={() => setSortOpen(true)} />
             </View>
             {now < retryAt && (
               <Notice>
@@ -458,8 +461,24 @@ function ActiveCheckIn({
         />
       )}
       {sortOpen && (
-        <Sheet title="Sort members" onClose={() => setSortOpen(false)}>
+        <Sheet title="Member sort and filter" onClose={() => setSortOpen(false)}>
           <View style={styles.stack}>
+            <Select
+              label="Group or subgroup"
+              value={groupId}
+              onChange={setGroupId}
+              options={[
+                { value: "", label: "All groups" },
+                ...(groups.data ?? [])
+                  .filter((group) => group.active)
+                  .map((group) => ({
+                    value: group.id,
+                    label: group.parentGroupId
+                      ? `${groups.data?.find((parent) => parent.id === group.parentGroupId)?.name ?? "Group"} / ${group.name}`
+                      : group.name,
+                  })),
+              ]}
+            />
             <SegmentedControl label="Name order" value={nameSort} onChange={setNameSort} options={[
               { value: "asc", label: "A-Z" },
               { value: "desc", label: "Z-A" },

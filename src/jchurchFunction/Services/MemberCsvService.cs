@@ -12,6 +12,7 @@ public sealed record MemberImportRow(
     string? FirstName,
     string? MiddleName,
     string? LastName,
+    string? Gender,
     string? BirthDate,
     string? School,
     string? Phone,
@@ -43,7 +44,7 @@ public sealed class MemberCsvService(Repositories repositories, DirectoryService
 
     private static readonly string[] FixedColumns =
     [
-        "Id", "MemberType", "FirstName", "MiddleName", "LastName", "BirthDate", "School", "Phone", "Email", "AllergyDetail", "Groups",
+        "Id", "MemberType", "FirstName", "MiddleName", "LastName", "Gender", "BirthDate", "School", "Phone", "Email", "AllergyDetail", "Groups",
         "Guardian1FirstName", "Guardian1MiddleName", "Guardian1LastName", "Guardian1Relationship", "Guardian1OtherRelationship", "Guardian1Phone", "Guardian1Email",
         "Guardian2FirstName", "Guardian2MiddleName", "Guardian2LastName", "Guardian2Relationship", "Guardian2OtherRelationship", "Guardian2Phone", "Guardian2Email"
     ];
@@ -124,6 +125,7 @@ public sealed class MemberCsvService(Repositories repositories, DirectoryService
                 ["FirstName"] = member.FirstName,
                 ["MiddleName"] = member.MiddleName ?? "",
                 ["LastName"] = member.LastName,
+                ["Gender"] = member.Gender ?? "",
                 ["BirthDate"] = member.BirthDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "",
                 ["School"] = member.School ?? "",
                 ["Phone"] = member.Phone ?? "",
@@ -244,6 +246,7 @@ public sealed class MemberCsvService(Repositories repositories, DirectoryService
             FirstName = row.FirstName ?? "",
             MiddleName = string.IsNullOrWhiteSpace(row.MiddleName) ? null : row.MiddleName,
             LastName = row.LastName ?? "",
+            Gender = string.IsNullOrWhiteSpace(row.Gender) ? null : row.Gender,
             BirthDate = string.IsNullOrWhiteSpace(row.BirthDate) ? null
                 : DateOnly.TryParseExact(row.BirthDate, "yyyy-MM-dd", out var birthDate) ? birthDate
                 : throw new ApiException(400, "invalid_birth_date", "birthDate must be yyyy-MM-dd."),

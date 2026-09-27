@@ -109,6 +109,7 @@ public sealed class DirectoryService(Repositories repositories, TimeProvider clo
                 Require(member.MemberType is "child" or "adult", "memberType must be child or adult.");
                 Name(member.FirstName, "firstName");
                 Name(member.LastName, "lastName");
+                Require(member.Gender is null or "Male" or "Female", "gender must be Male or Female.");
                 Require(member.MiddleName?.Length is not > 200 && member.School?.Length is not > 200 && member.Phone?.Length is not > 50 && member.AllergyDetail?.Length is not > 1000, "Optional member fields are too long.");
                 Require(member.BirthDate is null || member.BirthDate <= DateOnly.FromDateTime(clock.GetUtcNow().UtcDateTime), "birthDate cannot be in the future.");
                 Require(member.Email is null || (member.Email.Length <= 254 && MailAddress.TryCreate(member.Email, out var address) && address.Address == member.Email), "Invalid email address.");

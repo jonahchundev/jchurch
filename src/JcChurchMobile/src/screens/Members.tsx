@@ -122,24 +122,8 @@ export default function Members() {
             placeholder="Search members"
           />
         </View>
-        <IconButton icon="swap-vertical-outline" label="Sort members" onPress={() => setSortOpen(true)} />
+        <IconButton icon="swap-vertical-outline" label="Sort and filter members" onPress={() => setSortOpen(true)} />
       </View>
-      <Select
-        label="Group or subgroup"
-        value={groupId}
-        onChange={setGroupId}
-        options={[
-          { value: "", label: "All groups" },
-          ...(groups.data ?? [])
-            .filter((group) => group.active)
-            .map((group) => ({
-              value: group.id,
-              label: group.parentGroupId
-                ? `${groups.data?.find((parent) => parent.id === group.parentGroupId)?.name ?? "Group"} / ${group.name}`
-                : group.name,
-            })),
-        ]}
-      />
       {!!notice && <Notice>{notice}</Notice>}
       {(groups.error || fields.error) && (
         <Notice error>{message(groups.error ?? fields.error)}</Notice>
@@ -211,8 +195,24 @@ export default function Members() {
         />
       )}
       {sortOpen && (
-        <Sheet title="Sort members" onClose={() => setSortOpen(false)}>
+        <Sheet title="Member sort and filter" onClose={() => setSortOpen(false)}>
           <View style={styles.stack}>
+            <Select
+              label="Group or subgroup"
+              value={groupId}
+              onChange={setGroupId}
+              options={[
+                { value: "", label: "All groups" },
+                ...(groups.data ?? [])
+                  .filter((group) => group.active)
+                  .map((group) => ({
+                    value: group.id,
+                    label: group.parentGroupId
+                      ? `${groups.data?.find((parent) => parent.id === group.parentGroupId)?.name ?? "Group"} / ${group.name}`
+                      : group.name,
+                  })),
+              ]}
+            />
             <SegmentedControl label="Name order" value={nameSort} onChange={setNameSort} options={[
               { value: "asc", label: "A-Z" },
               { value: "desc", label: "Z-A" },
@@ -250,6 +250,8 @@ function defaults(member?: Member): MemberFormValues {
     scanCodeFormat: member?.scanCodeFormat ?? "qr",
     firstName: member?.firstName ?? "",
     lastName: member?.lastName ?? "",
+    // Select requires a plain string; cast covers members that predate this field.
+    gender: (member?.gender ?? "") as MemberFormValues["gender"],
     middleName: member?.middleName ?? "",
     birthDate: member?.birthDate ?? "",
     school: member?.school ?? "",
@@ -510,8 +512,6 @@ function MemberEditor({
             "firstName",
             "middleName",
             "lastName",
-            "phone",
-            "email",
           ] as const
         ).map((name) => (
           <Controller
@@ -525,6 +525,40 @@ function MemberEditor({
                     firstName: "First name",
                     middleName: "Middle name",
                     lastName: "Last name",
+                  }[name]
+                }
+                value={field.value}
+                onChangeText={field.onChange}
+                onBlur={field.onBlur}
+                editable={!locked}
+                autoCapitalize="words"
+                error={fieldState.error?.message}
+                required={name === "firstName" || name === "lastName"}
+              />
+            )}
+          />
+        ))}
+        <Controller control={form.control} name="gender" render={({ field, fieldState }) => (
+          <View>
+            <Select label="Gender" value={field.value ?? ""} onChange={field.onChange} disabled={locked} required
+              options={[{ value: "", label: "" }, { value: "Male", label: "Male" }, { value: "Female", label: "Female" }]} />
+            {!!fieldState.error && <Notice error>{fieldState.error.message}</Notice>}
+          </View>
+        )} />
+        {(
+          [
+            "phone",
+            "email",
+          ] as const
+        ).map((name) => (
+          <Controller
+            key={name}
+            control={form.control}
+            name={name}
+            render={({ field, fieldState }) => (
+              <Field
+                label={
+                  {
                     phone: "Phone",
                     email: "Email",
                   }[name]
@@ -542,7 +576,6 @@ function MemberEditor({
                       : "default"
                 }
                 error={fieldState.error?.message}
-                required={name === "firstName" || name === "lastName"}
               />
             )}
           />

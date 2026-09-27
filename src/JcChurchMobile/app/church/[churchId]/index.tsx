@@ -15,27 +15,16 @@ export default function Home() {
           onPress={() => router.navigate(`/church/${churchId}/members`)}
         />
         <Row
-          title="Search members"
-          subtitle="Find someone in your church"
-          icon="search-outline"
-          onPress={() =>
-            router.navigate({
-              pathname: "/church/[churchId]/members",
-              params: { churchId, search: "1" },
-            })
-          }
+          title="Manage groups"
+          subtitle="Groups and subgroups"
+          icon="albums-outline"
+          onPress={() => router.navigate(`/church/${churchId}/groups`)}
         />
         <Row
           title="Manage events"
           subtitle="Events and dated sessions"
           icon="calendar-outline"
           onPress={() => router.navigate(`/church/${churchId}/events`)}
-        />
-        <Row
-          title="Manage groups"
-          subtitle="Groups and subgroups"
-          icon="albums-outline"
-          onPress={() => router.navigate(`/church/${churchId}/groups`)}
         />
         <Row
           title="Start check-in"
