@@ -78,13 +78,13 @@ export function describeRecurrence(rule: string | null | undefined) {
 }
 const optionalText = (max: number) => z.string().max(max);
 const guardianSchema = z.object({
-  firstName: z.string().trim().min(1, "First name is required.").max(200),
+  firstName: optionalText(200),
   middleName: optionalText(200),
-  lastName: z.string().trim().min(1, "Last name is required.").max(200),
+  lastName: optionalText(200),
   relationship: z.enum(["Mother", "Father", "Grandmother", "Grandfather", "Others"]),
   otherRelationship: optionalText(50),
-  phone: z.string().trim().min(1, "Phone is required.").max(50),
-  email: z.string().trim().email().max(254),
+  phone: optionalText(50),
+  email: z.union([z.literal(""), z.string().trim().email().max(254)]),
 });
 export function normalizeScanCode(value: string): string {
   const code = value.trim();
@@ -121,8 +121,6 @@ export const memberSchema = z.object({
   groupIds: z.array(z.string()).max(50),
   customFields: z.record(z.string(), z.unknown()),
 }).superRefine((values, context) => {
-  if (values.memberType === "child" && !values.guardian1)
-    context.addIssue({ code: z.ZodIssueCode.custom, path: ["guardian1"], message: "Guardian 1 is required for child members." });
   for (const [path, guardian] of [["guardian1", values.guardian1], ["guardian2", values.guardian2]] as const) {
     if (guardian?.relationship === "Others" && !guardian.otherRelationship.trim())
       context.addIssue({ code: z.ZodIssueCode.custom, path: [path, "otherRelationship"], message: "Describe the relationship." });
@@ -216,9 +214,30 @@ export function memberAge(birthDate: string | null | undefined) {
   return years >= 0 ? years : null;
 }
 
+export function guardianIncomplete(member: {
+  memberType: string;
+  guardian1?: {
+    firstName?: string | null;
+    lastName?: string | null;
+    phone?: string | null;
+    email?: string | null;
+  } | null;
+}) {
+  if (member.memberType !== "child") return false;
+  const guardian = member.guardian1;
+  return (
+    !guardian ||
+    !guardian.firstName?.trim() ||
+    !guardian.lastName?.trim() ||
+    !guardian.phone?.trim() ||
+    !guardian.email?.trim()
+  );
+}
+
 export function attendanceRange(day: string) {
   const date = DateTime.fromISO(day, { zone: "utc" }).startOf("day");
   if (!date.isValid || !/^\d{4}-\d{2}-\d{2}$/.test(day))
     throw new Error("Choose a valid attendance date.");
   return { from: date.toISO()!, to: date.plus({ days: 1 }).toISO()! };
 }
+

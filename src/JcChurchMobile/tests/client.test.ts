@@ -250,7 +250,7 @@ describe("dates and validation", () => {
   it("rejects missing names", () => {
     expect(memberSchema.safeParse({}).success).toBe(false);
   });
-  it("requires child guardian contact details and limits other relationships", () => {
+  it("allows optional guardian info but limits other relationships when provided", () => {
     const base = {
       memberType: "child" as const,
       allergyDetail: "",
@@ -274,8 +274,26 @@ describe("dates and validation", () => {
       },
     };
     expect(memberSchema.safeParse(base).success).toBe(true);
-    expect(memberSchema.safeParse({ ...base, guardian1: { ...base.guardian1, phone: "" } }).success).toBe(false);
+    expect(memberSchema.safeParse({ ...base, guardian1: undefined }).success).toBe(true);
+    expect(memberSchema.safeParse({ ...base, guardian1: { ...base.guardian1, phone: "" } }).success).toBe(true);
     expect(memberSchema.safeParse({ ...base, guardian1: { ...base.guardian1, otherRelationship: "x".repeat(51) } }).success).toBe(false);
+  });
+  it("flags an incomplete guardian1 for child members only", async () => {
+    const { guardianIncomplete } = await import("../src/domain");
+    expect(guardianIncomplete({ memberType: "child" })).toBe(true);
+    expect(guardianIncomplete({ memberType: "adult" })).toBe(false);
+    expect(
+      guardianIncomplete({
+        memberType: "child",
+        guardian1: { firstName: "Maria", lastName: "Test", phone: "", email: "maria@example.com" },
+      }),
+    ).toBe(true);
+    expect(
+      guardianIncomplete({
+        memberType: "child",
+        guardian1: { firstName: "Maria", lastName: "Test", phone: "555-0100", email: "maria@example.com" },
+      }),
+    ).toBe(false);
   });
   it("clears stale child-only fields from adult payloads", () => {
     const values = {

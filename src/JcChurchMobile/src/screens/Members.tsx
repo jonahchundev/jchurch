@@ -7,7 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { api, churchPath, useAll, useDebounce, useList } from "../api/hooks";
 import { ApiError, message } from "../api/client";
 import type { Church, CustomField, Group, Member } from "../api/types";
-import { memberInput, memberSchema, normalizeScanCode, type MemberFormValues } from "../domain";
+import { guardianIncomplete, memberAge, memberInput, memberSchema, normalizeScanCode, type MemberFormValues } from "../domain";
 import { generateScanCode, ScanCard, ScanInput } from "../ScanCode";
 import MembersImportExport from "./MembersImportExport";
 import {
@@ -127,19 +127,26 @@ export default function Members() {
         onRetry={() => void query.refetch()}
       />
       <View>
-        {members.map((member) => (
-          <Row
-            key={member.id}
-            title={memberName(member)}
-            subtitle={
-              groupNames(member, groups.data ?? []) ||
-              member.school ||
-              undefined
-            }
-            icon="person-outline"
-            onPress={() => setEditing(member)}
-          />
-        ))}
+        {members.map((member) => {
+          const details = [
+            memberAge(member.birthDate) === null
+              ? ""
+              : `Age ${memberAge(member.birthDate)}`,
+            member.school ?? "",
+            groupNames(member, groups.data ?? []),
+          ].filter(Boolean).join(" · ");
+          return (
+            <Row
+              key={member.id}
+              title={memberName(member)}
+              subtitle={details || undefined}
+              badge={guardianIncomplete(member) ? "Guardian info incomplete" : undefined}
+              badgeTone="danger"
+              icon="person-outline"
+              onPress={() => setEditing(member)}
+            />
+          );
+        })}
       </View>
       {query.hasNextPage && (
         <Button
@@ -173,6 +180,19 @@ export default function Members() {
   );
 }
 
+function guardianDefaults(guardian: Member["guardian1"]): MemberFormValues["guardian1"] {
+  if (!guardian) return undefined;
+  return {
+    firstName: guardian.firstName ?? "",
+    middleName: guardian.middleName ?? "",
+    lastName: guardian.lastName ?? "",
+    relationship: guardian.relationship ?? "Mother",
+    otherRelationship: guardian.otherRelationship ?? "",
+    phone: guardian.phone ?? "",
+    email: guardian.email ?? "",
+  };
+}
+
 function defaults(member?: Member): MemberFormValues {
   return {
     memberType: member?.memberType ?? "child",
@@ -186,12 +206,12 @@ function defaults(member?: Member): MemberFormValues {
     school: member?.school ?? "",
     phone: member?.phone ?? "",
     email: member?.email ?? "",
-    guardian1: member?.guardian1
-      ? { ...member.guardian1, middleName: member.guardian1.middleName ?? "", otherRelationship: member.guardian1.otherRelationship ?? "" }
-      : member?.memberType === "adult"
+    guardian1:
+      guardianDefaults(member?.guardian1) ??
+      (member?.memberType === "adult"
         ? undefined
-        : { firstName: "", middleName: "", lastName: "", relationship: "Mother", otherRelationship: "", phone: "", email: "" },
-    guardian2: member?.guardian2 ? { ...member.guardian2, middleName: member.guardian2.middleName ?? "", otherRelationship: member.guardian2.otherRelationship ?? "" } : undefined,
+        : { firstName: "", middleName: "", lastName: "", relationship: "Mother", otherRelationship: "", phone: "", email: "" }),
+    guardian2: guardianDefaults(member?.guardian2),
     groupIds: member?.groupIds ?? [],
     customFields: member?.customFields ?? {},
   };
@@ -248,7 +268,6 @@ function GuardianFields({
             autoCapitalize={name === "email" ? "none" : "words"}
             keyboardType={name === "email" ? "email-address" : name === "phone" ? "phone-pad" : "default"}
             error={fieldState.error?.message}
-            required={name !== "middleName"}
           />
         )}
       />
@@ -263,7 +282,6 @@ function GuardianFields({
             value={field.value ?? "Mother"}
             disabled={disabled}
             onChange={field.onChange}
-            required
             options={[
               { value: "Mother", label: "Mother" },
               { value: "Father", label: "Father" },
@@ -489,7 +507,7 @@ function MemberEditor({
           <Controller control={form.control} name="allergyDetail" render={({ field, fieldState }) => (
             <Field label="Allergy detail" value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} editable={!locked} multiline error={fieldState.error?.message} />
           )} />
-          <Heading>Guardian 1</Heading>
+          <Heading>Guardian 1 (optional)</Heading>
           <GuardianFields control={form.control} prefix="guardian1" disabled={locked} relationship={form.watch("guardian1.relationship")} />
           <Heading>Guardian 2 (optional)</Heading>
           {!guardian2Enabled && <Button icon="add-outline" disabled={locked} onPress={() => {
