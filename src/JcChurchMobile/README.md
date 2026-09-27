@@ -131,3 +131,9 @@ npm install
 npm expo export -platform web
 
 npx @azure/static-web-apps-cli deploy .\dist --deployment-token {deploymentToken} --env production
+
+`public/staticwebapp.config.json` (copied verbatim into `dist/` by the Expo web export) sets a
+`navigationFallback` so deep links to client-side routes — e.g. `/register/{churchId}` — serve
+`index.html` instead of a 404. This is required because `swa deploy` on a pre-built `dist` folder
+skips Azure's automatic SPA framework detection, which only runs during a Static Web Apps-managed
+build. Without it, any URL that isn't a literal file in `dist/` returns "File not found".
