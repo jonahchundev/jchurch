@@ -171,7 +171,7 @@ public sealed class ChurchApi(Repositories repositories, DirectoryService direct
     {
         if (request.Method == "GET" && id is null && typeof(T) == typeof(Member))
         {
-            var page = await repositories.Members.Search(ParseQuery(request.Query, churchId), cancellationToken);
+            var page = await repositories.Members.Search(ParseQuery(request.Query, churchId, memberSort: true), cancellationToken);
             return new(200, new Page<Member>(page.Items.Select(member => member with { ScanCode = null, ScanCodeFormat = null }).ToArray(), page.ContinuationToken));
         }
         if (request.Method == "GET")
@@ -228,10 +228,12 @@ public sealed class ChurchApi(Repositories repositories, DirectoryService direct
         foreach (var property in document.RootElement.EnumerateObject())
         {
             if (!seen.Add(property.Name)) throw new JsonException();
-            if (typeof(Document).IsAssignableFrom(typeof(T)) && new[] { "id", "churchId", "kind", "_etag", "active", "searchText" }.Contains(property.Name, StringComparer.OrdinalIgnoreCase))
+            if (typeof(Document).IsAssignableFrom(typeof(T)) && new[] { "id", "churchId", "kind", "_etag", "active", "searchText", "createdOn", "updatedOn" }.Contains(property.Name, StringComparer.OrdinalIgnoreCase))
                 throw new ApiException(400, "read_only_field", "Request includes a server-managed field.");
         }
         var input = document.RootElement.Deserialize<T>(Json.Options) ?? throw new JsonException();
+        if (input is Church church)
+            return (T)(object)(church with { NewMemberDaysSpecified = seen.Contains("newMemberDays") });
         if (input is Member member)
             return (T)(object)(member with { ScanCodeSpecified = seen.Contains("scanCode"), ScanCodeFormatSpecified = seen.Contains("scanCodeFormat") });
         return input;
@@ -268,17 +270,20 @@ public sealed class ChurchApi(Repositories repositories, DirectoryService direct
         return JsonSerializer.Deserialize<T>(buffer.ToArray(), Json.Options) ?? throw new JsonException();
     }
 
-    private Query ParseQuery(NameValueCollection values, string churchId, bool attendance = false)
+    private Query ParseQuery(NameValueCollection values, string churchId, bool attendance = false, bool memberSort = false)
     {
-        var allowed = new[] { "search", "eventId", "occurrenceId", "memberId", "groupId", "groupIds", "parentGroupId", "includeSubgroups", "includeArchived", "from", "to", "pageSize", "continuationToken" };
+        var allowed = new[] { "search", "eventId", "occurrenceId", "memberId", "groupId", "groupIds", "parentGroupId", "includeSubgroups", "includeArchived", "from", "to", "pageSize", "continuationToken", "nameSort", "createdOnSort" };
         foreach (var key in values.AllKeys)
             if (key is null || !allowed.Contains(key) || (key != "groupIds" && values.GetValues(key)?.Length != 1)) throw new ApiException(400, "invalid_query", "Unknown or repeated query parameter.");
+        if (!memberSort && (values["nameSort"] is not null || values["createdOnSort"] is not null))
+            throw new ApiException(400, "invalid_query", "Member sorting is only supported on the member list.");
         bool Flag(string name) => values[name] is not { } value ? false : bool.TryParse(value, out var parsed) ? parsed : throw new ApiException(400, "invalid_query", $"{name} must be true or false.");
         DateTimeOffset? Date(string name) => values[name] is not { } value ? null : DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed) ? parsed.ToUniversalTime() : throw new ApiException(400, "invalid_query", $"Invalid {name} timestamp.");
         var query = new Query
         {
             ChurchId = churchId, Search = values["search"], EventId = values["eventId"], OccurrenceId = values["occurrenceId"], MemberId = values["memberId"], GroupId = values["groupId"], GroupIds = (values.GetValues("groupIds") ?? []).SelectMany(value => value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)).Distinct(StringComparer.Ordinal).ToArray(), ParentGroupId = values["parentGroupId"],
             IncludeSubgroups = Flag("includeSubgroups"), ActiveOnly = !Flag("includeArchived"), From = Date("from"), To = Date("to"), ContinuationToken = values["continuationToken"],
+            NameSort = values["nameSort"] ?? "asc", CreatedOnSort = values["createdOnSort"],
             PageSize = values["pageSize"] is not { } size ? 50 : int.TryParse(size, out var parsed) ? parsed : throw new ApiException(400, "invalid_query", "Invalid pageSize.")
         };
         if (attendance && query.From is not null && query.To is not null)

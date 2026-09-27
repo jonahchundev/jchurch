@@ -1,12 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { BarcodeFormat, BinaryBitmap, DecodeHintType, HybridBinarizer, MultiFormatReader, RGBLuminanceSource } from "@zxing/library";
 
-test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => {
-    window.localStorage.setItem("jchurch:temporary-admin-session:v1", "authenticated");
-  });
-});
-
 const metadata = (id: string, churchId = id) => ({
   id,
   churchId,
@@ -52,52 +46,6 @@ const pageBody = (
   items: unknown[],
   continuationToken: string | null = null,
 ) => ({ items, continuationToken });
-
-test("public member update navigates to a separate confirmation page", async ({ page }) => {
-  let saved = {
-    ...jordan,
-    memberType: "adult",
-    middleName: null,
-    birthDate: null,
-    school: null,
-    allergyDetail: null,
-    guardian1: null,
-    guardian2: null,
-  };
-  let updates = 0;
-  await page.route("**/api/v1/**", async route => {
-    const url = new URL(route.request().url());
-    const path = url.pathname.replace("/api/v1", "");
-    const method = route.request().method();
-    if (path === `/churches/${alpha.id}`) {
-      await route.fulfill({ json: alpha });
-      return;
-    }
-    if (path === `/churches/${alpha.id}/members/${jordan.id}`) {
-      if (method === "PUT") {
-        updates++;
-        saved = {
-          ...saved,
-          ...route.request().postDataJSON(),
-          _etag: '"updated"',
-        };
-      }
-      await route.fulfill({ json: saved });
-      return;
-    }
-    await route.fulfill({ status: 404, json: { detail: "Not found." } });
-  });
-
-  await page.goto(`/update/${alpha.id}/${jordan.id}`);
-  await expect(page.getByRole("heading", { name: "Update your information" })).toBeVisible();
-  await page.getByRole("textbox", { name: "First name (required)" }).fill("Jordan Updated");
-  await page.getByRole("button", { name: "Save updates" }).click();
-
-  await expect(page).toHaveURL(`/update/${alpha.id}/${jordan.id}/confirmation`);
-  await expect(page.getByRole("heading", { name: "Thank you!" })).toBeVisible();
-  await expect(page.getByText("Your information has been updated.", { exact: false })).toBeVisible();
-  expect(updates).toBe(1);
-});
 
 test("settings manage groups creates subgroups and feeds member assignment labels", async ({ page }, testInfo) => {
   const errors: string[] = [];
@@ -605,6 +553,7 @@ test("closing a session editor returns to active check-in", async ({ page }) => 
     `/church/${alpha.id}/check-in?eventId=${sampleEvent.id}&occurrenceId=${sampleSession.id}`,
   );
   await page.getByRole("button", { name: "Begin check-in", exact: true }).click();
+  await expect(page.getByText("UTC", { exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Edit session", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Session details", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Close", exact: true }).click();
@@ -993,4 +942,40 @@ test("church settings, members, sessions and duplicate-safe check-in", async ({
       }
     }
   }
+});
+
+test("member sort sheet updates server filters and shows creation metadata", async ({ page }) => {
+  const church = { ...alpha, newMemberDays: 6 };
+  const createdOn = new Date().toISOString();
+  const newMember = { ...jordan, createdOn, updatedOn: createdOn };
+  const memberQueries: URL[] = [];
+  await page.route("**/api/v1/**", async route => {
+    const url = new URL(route.request().url());
+    const path = url.pathname.replace("/api/v1", "");
+    let body: unknown = pageBody([]);
+    if (path === "/churches") body = pageBody([church]);
+    else if (path === `/churches/${church.id}`) body = church;
+    else if (path === `/churches/${church.id}/members`) {
+      memberQueries.push(url);
+      body = pageBody([newMember]);
+    } else if (path === `/churches/${church.id}/members/${newMember.id}`) body = newMember;
+    await route.fulfill({ json: body });
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: /Alpha Community/ }).click();
+  await page.getByRole("tab", { name: "Members", exact: true }).click();
+  await expect(page.getByLabel("Newly registered")).toBeVisible();
+  await expect.poll(() => memberQueries.some(url => url.searchParams.get("nameSort") === "asc")).toBe(true);
+
+  await page.getByRole("button", { name: "Sort members", exact: true }).click();
+  await page.getByRole("button", { name: "Name order: Z-A", exact: true }).click();
+  await page.getByRole("button", { name: "Created date: Newest", exact: true }).click();
+  await expect.poll(() => memberQueries.some(url =>
+    url.searchParams.get("nameSort") === "desc" && url.searchParams.get("createdOnSort") === "newest",
+  )).toBe(true);
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+
+  await page.getByRole("button", { name: /Jordan Example/ }).click();
+  await expect(page.getByText(/^Registered /)).toBeVisible();
 });

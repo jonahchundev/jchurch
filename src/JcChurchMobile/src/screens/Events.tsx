@@ -571,7 +571,7 @@ export function SessionList({
             <Row
               key={session.id}
               title={sessionTime(session.startsAt, event.timeZone)}
-              subtitle={`Ends ${DateTime.fromISO(session.endsAt).setZone(event.timeZone).toFormat("h:mm a")} · ${timeZoneLabel(event.timeZone)} · ${countByOccurrence.get(session.id) ?? 0} checked in`}
+              subtitle={`Ends ${DateTime.fromISO(session.endsAt).setZone(event.timeZone).toFormat("h:mm a")}${checkIn ? "" : ` · ${timeZoneLabel(event.timeZone)}`} · ${countByOccurrence.get(session.id) ?? 0} checked in`}
               badge={sessionStatus.label}
               badgeTone={sessionStatus.tone}
               icon="calendar-number-outline"

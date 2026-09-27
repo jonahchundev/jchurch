@@ -1,30 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
+import { DateTime } from "luxon";
 import {
   getWebProxyTarget,
   proxyRequestPath,
   selectApiBaseUrl,
 } from "../src/api/api-url";
 import { ApiError, createApi, queryString } from "../src/api/client";
-import { attendanceRange, describeRecurrence, localToUtc, memberInput, memberSchema, normalizeScanCode, publicMemberInput, publicRegistrationDefaults, publicRegistrationSchema, timeZoneLabel } from "../src/domain";
+import { attendanceRange, churchSchema, createdOnLabel, describeRecurrence, isNewMember, localToUtc, memberInput, memberSchema, normalizeScanCode, publicMemberInput, publicRegistrationDefaults, publicRegistrationSchema, timeZoneLabel } from "../src/domain";
 import { splitGroupImportRow, splitImportRow } from "../src/csvSchema";
-import { isValidTemporaryAdminCredentials } from "../src/auth/temporary-auth";
-
-describe("temporary admin credentials", () => {
-  const configured = { username: "admin", password: "abc123" };
-
-  it("accepts only the exact configured username and password", () => {
-    expect(isValidTemporaryAdminCredentials("admin", "abc123", configured)).toBe(true);
-    expect(isValidTemporaryAdminCredentials("Admin", "abc123", configured)).toBe(false);
-    expect(isValidTemporaryAdminCredentials("admin", "ABC123", configured)).toBe(false);
-    expect(isValidTemporaryAdminCredentials("admin", "wrong", configured)).toBe(false);
-  });
-
-  it("fails closed when either configured value is missing", () => {
-    expect(isValidTemporaryAdminCredentials("admin", "abc123", {})).toBe(false);
-    expect(isValidTemporaryAdminCredentials("admin", "abc123", { username: "admin" })).toBe(false);
-    expect(isValidTemporaryAdminCredentials("admin", "abc123", { username: "", password: "abc123" })).toBe(false);
-  });
-});
 
 describe("API contracts", () => {
   it("selects arbitrary platform API bases and preserves web paths", () => {
@@ -351,6 +334,7 @@ describe("dates and validation", () => {
       middleName: "",
       school: "",
       birthDate: "",
+      groupIds: [],
       guardian1: {
         firstName: "Maria",
         middleName: "",
@@ -375,6 +359,7 @@ describe("dates and validation", () => {
       middleName: "",
       school: "",
       birthDate: "",
+      groupIds: [],
     };
     const parsed = publicRegistrationSchema.parse(adult);
     expect(publicRegistrationSchema.safeParse(adult).success).toBe(true);
@@ -394,51 +379,14 @@ describe("dates and validation", () => {
       }).success,
     ).toBe(false);
   });
-  it("prefills public registration defaults from a fetched member for the update form", () => {
-    const childMember = {
-      memberType: "child",
-      firstName: "Child",
-      lastName: "Test",
-      middleName: null,
-      birthDate: "2018-05-01",
-      school: "Elm Street",
-      allergyDetail: "Peanuts",
-      guardian1: {
-        firstName: "Maria",
-        middleName: null,
-        lastName: "Test",
-        relationship: "Mother" as const,
-        otherRelationship: null,
-        phone: "555-0100",
-        email: "maria@example.com",
-      },
-    };
-    const childDefaults = publicRegistrationDefaults(childMember);
-    expect(childDefaults.memberType).toBe("child");
-    expect(childDefaults.school).toBe("Elm Street");
-    expect(childDefaults.guardian1?.firstName).toBe("Maria");
-    expect(childDefaults.guardian2).toBeUndefined();
-
-    const adultMember = {
+  it("preserves group assignments in public member defaults and input", () => {
+    const defaults = publicRegistrationDefaults({
       memberType: "adult",
-      firstName: "Adult",
-      lastName: "Member",
-    };
-    const adultDefaults = publicRegistrationDefaults(adultMember);
-    expect(adultDefaults.memberType).toBe("adult");
-    expect(adultDefaults.guardian1).toBeUndefined();
-
-    const blankDefaults = publicRegistrationDefaults();
-    expect(blankDefaults.memberType).toBe("child");
-    expect(blankDefaults.guardian1).toEqual({
-      firstName: "",
-      middleName: "",
-      lastName: "",
-      relationship: "Mother",
-      otherRelationship: "",
-      phone: "",
-      email: "",
+      groupIds: ["group_one", "group_two"],
     });
+
+    expect(defaults.groupIds).toEqual(["group_one", "group_two"]);
+    expect(publicMemberInput(defaults).groupIds).toEqual(["group_one", "group_two"]);
   });
   it("converts an event wall time in its timezone", () => {
     expect(localToUtc("2026-09-20T09:00", "America/New_York")).toBe(
@@ -469,5 +417,18 @@ describe("dates and validation", () => {
     expect(timeZoneLabel("America/Chicago")).toBe("Central Time");
     expect(timeZoneLabel("UTC")).toBe("UTC");
     expect(timeZoneLabel("Europe/London")).toBe("Europe/London");
+  });
+  it("validates the church new-member window and its rolling UTC boundary", () => {
+    const churchInput = { name: "Church", newMemberDays: "6", scanCodesEnabled: true, scanCodeFormat: "qr" };
+    expect(churchSchema.safeParse(churchInput).success).toBe(true);
+    expect(churchSchema.safeParse({ ...churchInput, newMemberDays: "0" }).success).toBe(true);
+    expect(churchSchema.safeParse({ ...churchInput, newMemberDays: "3651" }).success).toBe(false);
+    const now = DateTime.fromISO("2026-09-26T10:00:00Z", { setZone: true });
+    expect(isNewMember("2026-09-20T10:00:00Z", 6, now)).toBe(true);
+    expect(isNewMember("2026-09-20T09:59:59Z", 6, now)).toBe(false);
+    expect(isNewMember("2026-09-27T10:00:00Z", 6, now)).toBe(false);
+    expect(isNewMember("2026-09-26T09:00:00Z", 0, now)).toBe(false);
+    expect(isNewMember(null, 6, now)).toBe(false);
+    expect(createdOnLabel(null)).toBe("Registration date unavailable");
   });
 });

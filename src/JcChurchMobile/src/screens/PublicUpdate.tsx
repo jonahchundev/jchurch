@@ -73,7 +73,7 @@ export default function PublicUpdate({
           office if you have questions.
         </Notice>
       )}
-      <PublicMemberForm form={form} guardian2Enabled={guardian2Enabled} setGuardian2Enabled={setGuardian2Enabled} />
+      <PublicMemberForm form={form} churchId={churchId} guardian2Enabled={guardian2Enabled} setGuardian2Enabled={setGuardian2Enabled} />
       {!!submit.error && (
         <Notice error>
           {stale

@@ -7,6 +7,32 @@ namespace JChurch.Tests;
 public class RepositoryTests
 {
     [Fact]
+    public async Task AuditTimestampsAreServerManagedAndCreationTimeIsImmutable()
+    {
+        var firstInstant = DateTimeOffset.Parse("2026-09-26T10:00:00Z");
+        var clock = new TestClock(firstInstant);
+        var repository = new InMemoryRepository<Member>(clock);
+        var forgedInstant = firstInstant.AddYears(-10);
+        var created = (await repository.Create(new Member
+        {
+            Id = "member", ChurchId = "church", CreatedOn = forgedInstant, UpdatedOn = forgedInstant
+        })).Item;
+
+        Assert.Equal(firstInstant, created.CreatedOn);
+        Assert.Equal(firstInstant, created.UpdatedOn);
+        var duplicate = await repository.Create(new Member { Id = created.Id, ChurchId = created.ChurchId });
+        Assert.False(duplicate.Created);
+        Assert.Equal(created.CreatedOn, duplicate.Item.CreatedOn);
+        Assert.Equal(created.UpdatedOn, duplicate.Item.UpdatedOn);
+
+        var secondInstant = firstInstant.AddMinutes(5);
+        clock.Now = secondInstant;
+        var updated = await repository.Replace(created with { CreatedOn = forgedInstant, UpdatedOn = forgedInstant }, created.ETag);
+        Assert.Equal(firstInstant, updated.CreatedOn);
+        Assert.Equal(secondInstant, updated.UpdatedOn);
+    }
+
+    [Fact]
     public async Task ConcurrentDuplicatesCreateOneReceipt()
     {
         var repository = new InMemoryRepository<Attendance>();
@@ -66,5 +92,58 @@ public class RepositoryTests
             token = page.ContinuationToken;
         } while (token is not null);
         Assert.Equal(names.Select(name => { var p = name.Split(' '); return $"{p[1]} {p[0]}"; }).OrderBy(name => name, StringComparer.Ordinal), seen);
+    }
+
+    [Fact]
+    public async Task MembersSortByCreatedOnThenSelectedNameDirectionAcrossPages()
+    {
+        var clock = new TestClock(DateTimeOffset.Parse("2026-09-20T10:00:00Z"));
+        var repository = new InMemoryRepository<Member>(clock);
+        async Task Add(string id, string firstName, string lastName, int daysAgo)
+        {
+            clock.Now = DateTimeOffset.Parse("2026-09-26T10:00:00Z").AddDays(-daysAgo);
+            await repository.Create(new Member { Id = id, ChurchId = "church", FirstName = firstName, LastName = lastName });
+        }
+        await Add("member-z", "Sam", "Adams", 1);
+        await Add("member-a", "Sam", "Adams", 1);
+        await Add("member-b", "Zoe", "Brown", 1);
+        await Add("member-old", "Amy", "Smith", 5);
+
+        var query = new Query { ChurchId = "church", PageSize = 2, CreatedOnSort = "newest" };
+        var first = await repository.Search(query);
+        Assert.Equal(["member-a", "member-z"], first.Items.Select(member => member.Id));
+        await Assert.ThrowsAsync<ApiException>(() => repository.Search(query with
+        {
+            NameSort = "desc", ContinuationToken = first.ContinuationToken
+        }));
+
+        var seen = first.Items.Select(member => member.Id).ToList();
+        var token = first.ContinuationToken;
+        while (token is not null)
+        {
+            var page = await repository.Search(query with { ContinuationToken = token });
+            seen.AddRange(page.Items.Select(member => member.Id));
+            token = page.ContinuationToken;
+        }
+        Assert.Equal(["member-a", "member-z", "member-b", "member-old"], seen);
+
+        var descendingNames = await repository.Search(query with { NameSort = "desc", PageSize = 10 });
+        Assert.Equal(["member-b", "member-z", "member-a", "member-old"], descendingNames.Items.Select(member => member.Id));
+        var oldest = await repository.Search(query with { CreatedOnSort = "oldest", PageSize = 10 });
+        Assert.Equal(["member-old", "member-a", "member-z", "member-b"], oldest.Items.Select(member => member.Id));
+    }
+
+    [Fact]
+    public void CosmosMemberQueriesUseIndexedDateAndNameOrdering()
+    {
+        var newest = CosmosRepository<Member>.BuildQuery(new Query { ChurchId = "church", CreatedOnSort = "newest", NameSort = "desc" }).QueryText;
+        Assert.Contains("IS_DEFINED(c.createdOn) AND NOT IS_NULL(c.createdOn)", newest);
+        Assert.Contains("ORDER BY c.createdOn DESC, c.lastName DESC, c.firstName DESC, c.id DESC", newest);
+
+        var oldest = CosmosRepository<Member>.BuildQuery(new Query { ChurchId = "church", CreatedOnSort = "oldest" }).QueryText;
+        Assert.Contains("ORDER BY c.createdOn ASC, c.lastName ASC, c.firstName ASC, c.id ASC", oldest);
+
+        var nameOnly = CosmosRepository<Member>.BuildQuery(new Query { ChurchId = "church", NameSort = "desc" }).QueryText;
+        Assert.Contains("ORDER BY c.lastName DESC, c.firstName DESC, c.id DESC", nameOnly);
     }
 }

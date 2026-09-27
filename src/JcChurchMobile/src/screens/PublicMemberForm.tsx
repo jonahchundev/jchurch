@@ -1,7 +1,9 @@
 import { View } from "react-native";
 import { Controller, type Control, type UseFormReturn } from "react-hook-form";
+import { churchPath, useAll } from "../api/hooks";
+import type { Group } from "../api/types";
 import type { PublicRegistrationFormValues } from "../domain";
-import { Button, DateField, Field, Heading, Label, Notice, Select, styles } from "../ui";
+import { Button, DateField, Field, Heading, Label, Notice, QueryState, Select, styles, Toggle } from "../ui";
 
 const blankGuardian = {
   firstName: "",
@@ -97,14 +99,23 @@ function GuardianFields({
 // Shared by PublicRegister (blank form) and PublicUpdate (prefilled from a fetched member).
 export function PublicMemberForm({
   form,
+  churchId,
   guardian2Enabled,
   setGuardian2Enabled,
 }: {
   form: UseFormReturn<PublicRegistrationFormValues>;
+  churchId: string;
   guardian2Enabled: boolean;
   setGuardian2Enabled: (value: boolean) => void;
 }) {
   const memberType = form.watch("memberType");
+  const assignedGroups = form.watch("groupIds");
+  const groups = useAll<Group>(churchPath(churchId, "groups"), {
+    includeArchived: true,
+  });
+  const hasArchivedGroups = groups.data?.some(
+    (group) => !group.active && assignedGroups.includes(group.id),
+  );
   return (
     <View style={styles.stack}>
       <Controller
@@ -173,6 +184,45 @@ export function PublicMemberForm({
         name="allergyDetail"
         render={({ field, fieldState }) => (
           <Field label="Allergy detail" value={field.value ?? ""} onChangeText={field.onChange} onBlur={field.onBlur} multiline error={fieldState.error?.message} />
+        )}
+      />
+      <Heading>Groups</Heading>
+      {hasArchivedGroups && (
+        <Notice error>
+          Archived group assignments must be removed or replaced before saving.
+        </Notice>
+      )}
+      <QueryState
+        pending={groups.isPending}
+        error={groups.error}
+        empty={!groups.data?.some((group) => group.active || assignedGroups.includes(group.id))}
+        emptyText="No groups available."
+        onRetry={() => void groups.refetch()}
+      />
+      <Controller
+        control={form.control}
+        name="groupIds"
+        render={({ field }) => (
+          <View style={{ gap: 2 }}>
+            {(groups.data ?? [])
+              .filter((group) => group.active || field.value.includes(group.id))
+              .map((group) => (
+                <Toggle
+                  key={group.id}
+                  label={`${group.parentGroupId ? `${groups.data?.find((parent) => parent.id === group.parentGroupId)?.name ?? "Group"} / ` : ""}${group.name}${!group.active ? " (archived)" : ""}`}
+                  value={field.value.includes(group.id)}
+                  compact
+                  disabled={!group.active && !field.value.includes(group.id)}
+                  onChange={(checked) =>
+                    field.onChange(
+                      checked
+                        ? [...field.value, group.id]
+                        : field.value.filter((id) => id !== group.id),
+                    )
+                  }
+                />
+              ))}
+          </View>
         )}
       />
       {memberType === "child" && (

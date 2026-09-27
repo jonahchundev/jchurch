@@ -13,7 +13,7 @@ import type {
   Member,
   Occurrence,
 } from "../api/types";
-import { guardianIncomplete, memberAge, sessionTime } from "../domain";
+import { guardianIncomplete, isNewMember, memberAge, sessionTime } from "../domain";
 import { registrationBaseUrl } from "../api/api-url";
 import { RegistrationCode } from "../RegistrationCode";
 import {
@@ -22,10 +22,13 @@ import {
   IconButton,
   Label,
   Notice,
+  NewMemberMark,
   Page,
   QueryState,
   Row,
   SearchBox,
+  SegmentedControl,
+  Sheet,
   styles,
   ViewTabs,
 } from "../ui";
@@ -107,7 +110,6 @@ export default function CheckIn() {
   if (!occurrenceId)
     return (
       <Page title={event.data.name} eyebrow="Check-in / Choose session">
-        <Label muted>{event.data.timeZone}</Label>
         <Button secondary icon="swap-horizontal-outline" onPress={changeEvent}>
           Change event
         </Button>
@@ -149,7 +151,6 @@ export default function CheckIn() {
         <Label>
           {sessionTime(occurrence.data.startsAt, event.data.timeZone)}
         </Label>
-        <Label muted>{event.data.timeZone}</Label>
         {!valid && (
           <Notice error>
             This session is cancelled, archived, or does not belong to the
@@ -217,7 +218,6 @@ function ChooseEvent({
           <Row
             key={event.id}
             title={event.name}
-            subtitle={event.timeZone}
             icon="calendar-outline"
             onPress={() => onSelect(event)}
           />
@@ -266,6 +266,9 @@ function ActiveCheckIn({
   const [retryAt, setRetryAt] = useState(0);
   const [now, setNow] = useState(Date.now());
   const [registrationOpen, setRegistrationOpen] = useState(false);
+  const [nameSort, setNameSort] = useState("asc");
+  const [createdOnSort, setCreatedOnSort] = useState("");
+  const [sortOpen, setSortOpen] = useState(false);
   useEffect(() => {
     if (!scanEnabled && view === "scan") setView("members");
   }, [scanEnabled, view]);
@@ -277,6 +280,8 @@ function ActiveCheckIn({
   const query = useList<Member>(churchPath(event.churchId, "members"), {
     search: useDebounce(search),
     groupIds: occurrence.groupIds?.join(",") ?? "",
+    nameSort,
+    createdOnSort: createdOnSort || undefined,
     pageSize: 200,
   });
   const groups = useAll<Group>(churchPath(event.churchId, "groups"), {
@@ -325,7 +330,7 @@ function ActiveCheckIn({
       >
         <View style={{ flex: 1, minWidth: 0 }}>
           <Heading>{event.name}</Heading>
-          <Label small>{sessionTime(occurrence.startsAt, event.timeZone)} · {event.timeZone}</Label>
+          <Label small>{sessionTime(occurrence.startsAt, event.timeZone)}</Label>
           <Label small muted>{occurrence.groupIds?.length ? `Groups: ${occurrence.groupIds.map(id => groups.data?.find(group => group.id === id)?.name ?? id).join(", ")}` : "Groups: All members"}</Label>
         </View>
         <IconButton icon="swap-horizontal-outline" label="Change session" disabled={checkIn.isPending || scanLocked} onPress={onChange} />
@@ -357,11 +362,16 @@ function ActiveCheckIn({
           />
         ) : (
           <>
-            <SearchBox
-              value={search}
-              onChange={setSearch}
-              placeholder="Search members to check in"
-            />
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <SearchBox
+                  value={search}
+                  onChange={setSearch}
+                  placeholder="Search members to check in"
+                />
+              </View>
+              <IconButton icon="swap-vertical-outline" label="Sort members" onPress={() => setSortOpen(true)} />
+            </View>
             {now < retryAt && (
               <Notice>
                 Service is busy. Retry in {Math.ceil((retryAt - now) / 1000)}{" "}
@@ -397,6 +407,7 @@ function ActiveCheckIn({
                   <View key={member.id} style={{ paddingBottom: 14, gap: 8 }}>
                     <Row
                       title={memberName(member)}
+                      titleAccessory={isNewMember(member.createdOn, church.data?.newMemberDays) ? <NewMemberMark /> : undefined}
                       subtitle={details || undefined}
                       badge={badge || undefined}
                       badgeTone={incomplete ? "danger" : "default"}
@@ -445,6 +456,21 @@ function ActiveCheckIn({
           url={`${registrationBaseUrl()}/register/${event.churchId}/${event.id}/${occurrence.id}`}
           onClose={() => setRegistrationOpen(false)}
         />
+      )}
+      {sortOpen && (
+        <Sheet title="Sort members" onClose={() => setSortOpen(false)}>
+          <View style={styles.stack}>
+            <SegmentedControl label="Name order" value={nameSort} onChange={setNameSort} options={[
+              { value: "asc", label: "A-Z" },
+              { value: "desc", label: "Z-A" },
+            ]} />
+            <SegmentedControl label="Created date" value={createdOnSort} onChange={setCreatedOnSort} options={[
+              { value: "", label: "Off" },
+              { value: "newest", label: "Newest" },
+              { value: "oldest", label: "Oldest" },
+            ]} />
+          </View>
+        </Sheet>
       )}
     </View>
   );

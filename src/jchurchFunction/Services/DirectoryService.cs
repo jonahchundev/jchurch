@@ -80,7 +80,10 @@ public sealed class DirectoryService(Repositories repositories, TimeProvider clo
         switch (document)
         {
             case Church church:
+                if (existing is Church oldChurch && church.NewMemberDaysSpecified is false)
+                    church = church with { NewMemberDays = oldChurch.NewMemberDays };
                 Name(church.Name, "name");
+                Require(church.NewMemberDays is >= 0 and <= 3650, "newMemberDays must be between 0 and 3650.");
                 Require(church.ScanCodeFormat is null or "qr" or "code128", "scanCodeFormat must be qr or code128.");
                 document = church with { Name = church.Name.Trim(), ScanCodeFormat = church.ScanCodeFormat ?? "qr", SearchText = church.Name.Trim() };
                 break;

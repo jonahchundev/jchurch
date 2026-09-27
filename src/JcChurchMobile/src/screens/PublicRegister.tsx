@@ -72,7 +72,7 @@ export default function PublicRegister({
     );
   return (
     <Page title={session ? "Session registration" : "Registration"} eyebrow={church.data.name}>
-      <PublicMemberForm form={form} guardian2Enabled={guardian2Enabled} setGuardian2Enabled={setGuardian2Enabled} />
+      <PublicMemberForm form={form} churchId={churchId} guardian2Enabled={guardian2Enabled} setGuardian2Enabled={setGuardian2Enabled} />
       {!!submit.error && <Notice error>{message(submit.error)}</Notice>}
       <Button
         icon="checkmark-circle-outline"

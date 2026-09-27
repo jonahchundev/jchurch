@@ -107,6 +107,14 @@ export function IconButton({
     </Pressable>
   );
 }
+export function NewMemberMark() {
+  return (
+    <View accessible accessibilityLabel="Newly registered" style={{ flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 6, minHeight: 22, borderRadius: 4, backgroundColor: colors.pale }}>
+      <Icon name="sparkles-outline" size={13} />
+      <Text style={{ color: colors.primary, fontFamily: "Manrope_600SemiBold", fontSize: 12 }}>New</Text>
+    </View>
+  );
+}
 export function Button({
   children,
   onPress,
@@ -243,6 +251,7 @@ export function SearchBox({
 }
 export function Row({
   title,
+  titleAccessory,
   subtitle,
   onPress,
   icon = "chevron-forward",
@@ -252,6 +261,7 @@ export function Row({
   disabled = false,
 }: {
   title: string;
+  titleAccessory?: ReactNode;
   subtitle?: string;
   onPress?: () => void;
   icon?: IconName;
@@ -266,7 +276,10 @@ export function Row({
         <Icon name={icon} />
       </View>
       <View style={{ flex: 1, minWidth: 0, gap: 5 }}>
-        <Text style={styles.rowTitle}>{title}</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
+          <Text style={styles.rowTitle}>{title}</Text>
+          {titleAccessory}
+        </View>
         {!!subtitle && (
           <Label muted small>
             {subtitle}
@@ -510,6 +523,53 @@ export function ViewTabs({
     </View>
   );
 }
+export function SegmentedControl({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: { label: string; value: string }[];
+}) {
+  return (
+    <View style={styles.field}>
+      <Label small>{label}</Label>
+      <View style={{ flexDirection: "row", padding: 3, gap: 3, borderRadius: 6, backgroundColor: colors.background }}>
+        {options.map((option) => {
+          const selected = value === option.value;
+          return (
+            <Pressable
+              key={option.value}
+              accessibilityRole="button"
+              accessibilityLabel={`${label}: ${option.label}`}
+              accessibilityState={{ selected }}
+              onPress={() => onChange(option.value)}
+              style={({ pressed }) => ({
+                flex: 1,
+                minHeight: 44,
+                justifyContent: "center",
+                alignItems: "center",
+                paddingHorizontal: 6,
+                borderRadius: 4,
+                backgroundColor: selected ? colors.paper : "transparent",
+                borderWidth: selected ? 1 : 0,
+                borderColor: colors.line,
+                opacity: pressed ? 0.75 : 1,
+              })}
+            >
+              <Text style={{ color: selected ? colors.primary : colors.muted, fontFamily: "Manrope_600SemiBold", fontSize: 14, textAlign: "center" }}>
+                {option.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
 function WebPickerField({
   label,
   type,
@@ -700,12 +760,14 @@ export function TimeField({
 }
 export function Sheet({
   title,
+  titleAccessory,
   children,
   onClose,
   dirty = false,
   busy = false,
 }: {
   title: string;
+  titleAccessory?: ReactNode;
   children: ReactNode;
   onClose: () => void;
   dirty?: boolean;
@@ -739,7 +801,10 @@ export function Sheet({
           behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
           <View style={styles.sheetHeader}>
-            <Heading>{title}</Heading>
+            <View style={{ flex: 1, minWidth: 0, flexDirection: "row", flexWrap: "wrap", alignItems: "baseline", columnGap: 8 }}>
+              <Heading>{title}</Heading>
+              {titleAccessory}
+            </View>
             <IconButton
               icon="close-outline"
               label="Close"

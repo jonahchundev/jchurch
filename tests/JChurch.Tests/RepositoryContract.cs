@@ -11,12 +11,18 @@ internal static class RepositoryContract
         var church = churchId ?? $"contract_{Guid.NewGuid():N}";
         var otherChurch = otherChurchId ?? $"contract_{Guid.NewGuid():N}";
         // Names sort opposite of ids, proving Search() orders by name and not by id.
-        var original = (await members.Create(new Member { Id = "member_a", ChurchId = church, SearchText = "Ada Test", FirstName = "Zoe", LastName = "Zephyr", GroupIds = ["group"] })).Item;
+        var forgedTimestamp = DateTimeOffset.Parse("2000-01-01T00:00:00Z");
+        var original = (await members.Create(new Member { Id = "member_a", ChurchId = church, SearchText = "Ada Test", FirstName = "Zoe", LastName = "Zephyr", GroupIds = ["group"], CreatedOn = forgedTimestamp, UpdatedOn = forgedTimestamp })).Item;
+        Assert.NotNull(original.CreatedOn);
+        Assert.NotEqual(forgedTimestamp, original.CreatedOn);
+        Assert.Equal(original.CreatedOn, original.UpdatedOn);
         await members.Create(new Member { Id = "member_b", ChurchId = church, SearchText = "Ada Test", FirstName = "Amy", LastName = "Aaron", GroupIds = ["group"] });
         await members.Create(new Member { Id = "member_c", ChurchId = church, SearchText = "Other", GroupIds = ["other"] });
         Assert.Null(await members.Get(otherChurch, original.Id));
         var updated = await members.Replace(original with { FirstName = "Updated" }, original.ETag);
         Assert.NotEqual(original.ETag, updated.ETag);
+        Assert.Equal(original.CreatedOn, updated.CreatedOn);
+        Assert.True(updated.UpdatedOn >= original.UpdatedOn);
         Assert.Equal(412, (await Assert.ThrowsAsync<ApiException>(() => members.Replace(original, original.ETag))).Status);
         Assert.Equal(404, (await Assert.ThrowsAsync<ApiException>(() => members.Replace(original with { Id = "missing" }, original.ETag))).Status);
         var query = new Query { ChurchId = church, Search = "ADA", GroupId = "group", PageSize = 1 };
@@ -53,6 +59,8 @@ internal static class RepositoryContract
         var results = await Task.WhenAll(Enumerable.Range(0, 100).Select(_ => Task.Run(() => attendance.Create(receipt))));
         Assert.Single(results, result => result.Created);
         Assert.Single(results.Select(result => result.Item.ETag).Distinct());
+        Assert.NotNull(results[0].Item.CreatedOn);
+        Assert.Equal(results[0].Item.CreatedOn, results[0].Item.UpdatedOn);
         Assert.Null(await attendance.Get(otherChurch, receipt.Id, receipt.OccurrenceId));
         Assert.True((await attendance.Create(receipt with { ChurchId = otherChurch })).Created);
         var report = new Query
@@ -70,7 +78,9 @@ internal static class RepositoryContract
         Assert.Single(receipts);
         await attendance.Create(receipt with { Id = "occurrence_member_b", MemberId = "member_b" });
         var inactive = (await attendance.Get(church, receipt.Id, receipt.OccurrenceId))!;
-        await attendance.Replace(inactive with { Active = false }, inactive.ETag);
+        var archived = await attendance.Replace(inactive with { Active = false }, inactive.ETag);
+        Assert.Equal(inactive.CreatedOn, archived.CreatedOn);
+        Assert.True(archived.UpdatedOn >= inactive.UpdatedOn);
         var counts = await attendance.ActiveCheckInCounts(church, "event");
         Assert.Equal([new OccurrenceCheckInCount("occurrence", 1)], counts);
     }

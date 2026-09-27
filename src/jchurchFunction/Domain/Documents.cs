@@ -10,6 +10,8 @@ public abstract record Document
     public string Kind => GetType().Name;
     [JsonPropertyName("_etag")]
     public string ETag { get; init; } = "";
+    public DateTimeOffset? CreatedOn { get; init; }
+    public DateTimeOffset? UpdatedOn { get; init; }
     public bool Active { get; init; } = true;
     public string SearchText { get; init; } = "";
 }
@@ -17,6 +19,9 @@ public abstract record Document
 public sealed record Church : Document
 {
     public string Name { get; init; } = "";
+    public int NewMemberDays { get; init; } = 6;
+    [JsonIgnore]
+    public bool? NewMemberDaysSpecified { get; init; }
     public bool ScanCodesEnabled { get; init; } = true;
     public string? ScanCodeFormat { get; init; }
 }

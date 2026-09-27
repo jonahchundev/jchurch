@@ -7,7 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { api, churchPath, useAll, useDebounce, useList } from "../api/hooks";
 import { ApiError, message } from "../api/client";
 import type { Church, CustomField, Group, Member } from "../api/types";
-import { guardianIncomplete, memberAge, memberInput, memberSchema, normalizeScanCode, type MemberFormValues } from "../domain";
+import { createdOnLabel, guardianIncomplete, isNewMember, memberAge, memberInput, memberSchema, normalizeScanCode, type MemberFormValues } from "../domain";
 import { generateScanCode, ScanCard, ScanInput } from "../ScanCode";
 import { registrationBaseUrl } from "../api/api-url";
 import { RegistrationCode } from "../RegistrationCode";
@@ -20,11 +20,13 @@ import {
   IconButton,
   Label,
   Notice,
+  NewMemberMark,
   Page,
   QueryState,
   Row,
   SearchBox,
   Select,
+  SegmentedControl,
   Sheet,
   styles,
   Toggle,
@@ -57,15 +59,24 @@ export default function Members() {
   const client = useQueryClient();
   const [search, setSearch] = useState("");
   const [groupId, setGroupId] = useState("");
+  const [nameSort, setNameSort] = useState("asc");
+  const [createdOnSort, setCreatedOnSort] = useState("");
+  const [sortOpen, setSortOpen] = useState(false);
   const [editing, setEditing] = useState<Member | "new" | null>(null);
   const [notice, setNotice] = useState("");
   const [importExportOpen, setImportExportOpen] = useState(false);
   const [registrationOpen, setRegistrationOpen] = useState(false);
   useFocusEffect(useCallback(() => () => setNotice(""), []));
   const path = churchPath(churchId, "members");
+  const church = useQuery({
+    queryKey: [churchPath(churchId)],
+    queryFn: ({ signal }) => api.get<Church>(churchPath(churchId), signal),
+  });
   const query = useList<Member>(path, {
     search: useDebounce(search),
     groupId: groupId || undefined,
+    nameSort,
+    createdOnSort: createdOnSort || undefined,
     pageSize: 200,
   });
   const groups = useAll<Group>(churchPath(churchId, "groups"), {
@@ -101,13 +112,18 @@ export default function Members() {
         </>
       }
     >
-      <SearchBox
-        key={focusSearch}
-        autoFocus={focusSearch === "1"}
-        value={search}
-        onChange={setSearch}
-        placeholder="Search members"
-      />
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <SearchBox
+            key={focusSearch}
+            autoFocus={focusSearch === "1"}
+            value={search}
+            onChange={setSearch}
+            placeholder="Search members"
+          />
+        </View>
+        <IconButton icon="swap-vertical-outline" label="Sort members" onPress={() => setSortOpen(true)} />
+      </View>
       <Select
         label="Group or subgroup"
         value={groupId}
@@ -148,6 +164,7 @@ export default function Members() {
             <Row
               key={member.id}
               title={memberName(member)}
+              titleAccessory={isNewMember(member.createdOn, church.data?.newMemberDays) ? <NewMemberMark /> : undefined}
               subtitle={details || undefined}
               badge={guardianIncomplete(member) ? "Guardian info incomplete" : undefined}
               badgeTone="danger"
@@ -192,6 +209,21 @@ export default function Members() {
           url={`${registrationBaseUrl()}/register/${churchId}`}
           onClose={() => setRegistrationOpen(false)}
         />
+      )}
+      {sortOpen && (
+        <Sheet title="Sort members" onClose={() => setSortOpen(false)}>
+          <View style={styles.stack}>
+            <SegmentedControl label="Name order" value={nameSort} onChange={setNameSort} options={[
+              { value: "asc", label: "A-Z" },
+              { value: "desc", label: "Z-A" },
+            ]} />
+            <SegmentedControl label="Created date" value={createdOnSort} onChange={setCreatedOnSort} options={[
+              { value: "", label: "Off" },
+              { value: "newest", label: "Newest" },
+              { value: "oldest", label: "Oldest" },
+            ]} />
+          </View>
+        </Sheet>
       )}
     </Page>
   );
@@ -338,7 +370,6 @@ function MemberEditor({
   const [scanning, setScanning] = useState(false);
   const [guardian2Enabled, setGuardian2Enabled] = useState(!!member?.guardian2);
   const [replacement, setReplacement] = useState<MemberFormValues | null>(null);
-  const [updateLinkOpen, setUpdateLinkOpen] = useState(false);
   const church = useQuery({
     queryKey: [churchPath(churchId)],
     queryFn: ({ signal }) => api.get<Church>(churchPath(churchId), signal),
@@ -403,6 +434,7 @@ function MemberEditor({
   return (
     <Sheet
       title={current ? memberName(current) : "Add member"}
+      titleAccessory={current ? <Label small muted>{createdOnLabel(current.createdOn)}</Label> : undefined}
       dirty={form.formState.isDirty}
       busy={busy}
       onClose={onClose}
@@ -415,15 +447,6 @@ function MemberEditor({
             onPress={() => setEditing(true)}
           >
             Edit member
-          </Button>
-        )}
-        {current && (
-          <Button
-            secondary
-            icon="qr-code-outline"
-            onPress={() => setUpdateLinkOpen(true)}
-          >
-            Update link
           </Button>
         )}
         {!current?.active && current && (
@@ -752,14 +775,6 @@ function MemberEditor({
           </>
         )}
       </View>
-      {updateLinkOpen && current && (
-        <RegistrationCode
-          title="Update details"
-          subtitle={memberName(current)}
-          url={`${registrationBaseUrl()}/update/${churchId}/${current.id}`}
-          onClose={() => setUpdateLinkOpen(false)}
-        />
-      )}
     </Sheet>
   );
 }

@@ -27,9 +27,12 @@ public sealed class CosmosJsonSerializer : CosmosSerializer
     public override Stream ToStream<T>(T input) => new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(input, Options));
 }
 
-public sealed class CosmosRepository<T>(CosmosClient client, CosmosSettings settings) : IRepository<T> where T : Document
+public sealed class CosmosRepository<T>(CosmosClient client, CosmosSettings settings, TimeProvider? timeProvider = null) : IRepository<T> where T : Document
 {
+    private sealed record MemberDatePosition(int Phase, string? ContinuationToken);
+
     private readonly Container container = client.GetContainer(settings.Database, typeof(T) == typeof(Attendance) ? "attendance" : "directory");
+    private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
 
     private static PartitionKey Partition(string churchId, string? occurrenceId = null) => typeof(T) == typeof(Attendance)
         ? occurrenceId is null
@@ -56,6 +59,9 @@ public sealed class CosmosRepository<T>(CosmosClient client, CosmosSettings sett
             return new((T)(Document)await SaveMember(member, null, cancellationToken), true);
         }
         var occurrenceId = (document as Attendance)?.OccurrenceId;
+        var now = clock.GetUtcNow();
+        Document stamped = (Document)document with { CreatedOn = now, UpdatedOn = now };
+        document = (T)stamped;
         try
         {
             var result = await container.CreateItemAsync(document, Partition(document.ChurchId, occurrenceId), cancellationToken: cancellationToken);
@@ -74,6 +80,11 @@ public sealed class CosmosRepository<T>(CosmosClient client, CosmosSettings sett
         if (string.IsNullOrWhiteSpace(etag) || etag == "*") throw new ApiException(412, "stale_version", "An exact ETag is required.");
         if (document is Member member)
             return (T)(Document)await SaveMember(member, etag, cancellationToken);
+        var existing = await Get(document.ChurchId, document.Id, (document as Attendance)?.OccurrenceId, cancellationToken);
+        if (existing is null) throw new ApiException(404, "not_found", "Resource not found.");
+        if (existing.ETag != etag) throw new ApiException(412, "stale_version", "ETag is stale.");
+        Document stamped = (Document)document with { CreatedOn = existing.CreatedOn, UpdatedOn = clock.GetUtcNow() };
+        document = (T)stamped;
         try
         {
             var result = await container.ReplaceItemAsync(document, document.Id, Partition(document.ChurchId, (document as Attendance)?.OccurrenceId),
@@ -90,12 +101,15 @@ public sealed class CosmosRepository<T>(CosmosClient client, CosmosSettings sett
     {
         var member = ScanCodes.Normalize(input);
         Member? existing = null;
+        var now = clock.GetUtcNow();
         if (etag is not null)
         {
             existing = (Member?)(Document?)await Get(member.ChurchId, member.Id, cancellationToken: cancellationToken);
             if (existing is null) throw new ApiException(404, "not_found", "Resource not found.");
             if (existing.ETag != etag) throw new ApiException(412, "stale_version", "ETag is stale.");
+            member = member with { CreatedOn = existing.CreatedOn, UpdatedOn = now };
         }
+        else member = member with { CreatedOn = now, UpdatedOn = now };
         var batch = container.CreateTransactionalBatch(Partition(member.ChurchId));
         if (etag is null) batch.CreateItem(member);
         else batch.ReplaceItem(member.Id, member, new TransactionalBatchItemRequestOptions { IfMatchEtag = etag });
@@ -137,7 +151,11 @@ public sealed class CosmosRepository<T>(CosmosClient client, CosmosSettings sett
     {
         query.Validate();
         var continuation = Cursor.Decode<T>(query);
-        using var iterator = container.GetItemQueryIterator<T>(BuildQuery(query), continuation, new QueryRequestOptions
+        var dateSort = typeof(T) == typeof(Member) && query.CreatedOnSort is not null;
+        var datePosition = dateSort ? DecodeMemberDatePosition(continuation) : null;
+        var phase = datePosition?.Phase ?? 0;
+        var cosmosContinuation = datePosition?.ContinuationToken ?? (dateSort ? null : continuation);
+        using var iterator = container.GetItemQueryIterator<T>(BuildQuery(query, dateSort ? phase : null), cosmosContinuation, new QueryRequestOptions
         {
             PartitionKey = typeof(T) == typeof(Church) && query.ChurchId == "" ? null : Partition(query.ChurchId, query.OccurrenceId),
             MaxItemCount = query.PageSize
@@ -145,7 +163,12 @@ public sealed class CosmosRepository<T>(CosmosClient client, CosmosSettings sett
         try
         {
             var result = await iterator.ReadNextAsync(cancellationToken);
-            return new(result.ToArray(), result.ContinuationToken is null ? null : Cursor.Encode<T>(query, result.ContinuationToken));
+            var nextPosition = dateSort
+                ? result.ContinuationToken is not null
+                    ? JsonSerializer.Serialize(new MemberDatePosition(phase, result.ContinuationToken), Json.Options)
+                    : phase == 0 ? JsonSerializer.Serialize(new MemberDatePosition(1, null), Json.Options) : null
+                : result.ContinuationToken;
+            return new(result.ToArray(), nextPosition is null ? null : Cursor.Encode<T>(query, nextPosition));
         }
         catch (CosmosException error) when (error.StatusCode == HttpStatusCode.BadRequest && continuation is not null)
         {
@@ -196,6 +219,9 @@ public sealed class CosmosRepository<T>(CosmosClient client, CosmosSettings sett
     }
 
     public static QueryDefinition BuildQuery(Query query)
+        => BuildQuery(query, typeof(T) == typeof(Member) && query.CreatedOnSort is not null ? 0 : null);
+
+    private static QueryDefinition BuildQuery(Query query, int? memberDatePhase)
     {
         var clauses = new List<string> { "c.churchId = @churchId", "c.kind = @kind" };
         var parameters = new Dictionary<string, object> { ["@churchId"] = query.ChurchId, ["@kind"] = typeof(T).Name };
@@ -232,6 +258,8 @@ public sealed class CosmosRepository<T>(CosmosClient client, CosmosSettings sett
                     for (var index = 0; index < query.GroupIds.Length; index++) parameters[$"@groupId{index}"] = query.GroupIds[index];
                 }
         }
+            if (memberDatePhase == 0) clauses.Add("IS_DEFINED(c.createdOn) AND NOT IS_NULL(c.createdOn)");
+            else if (memberDatePhase == 1) clauses.Add("(NOT IS_DEFINED(c.createdOn) OR IS_NULL(c.createdOn))");
         var dateField = typeof(T) == typeof(Attendance) ? "checkedInAt" : "startsAt";
         if (query.From is not null)
         {
@@ -243,10 +271,29 @@ public sealed class CosmosRepository<T>(CosmosClient client, CosmosSettings sett
             clauses.Add($"c.{dateField} < @to");
             parameters["@to"] = UtcDateTimeConverter.Format(query.To.Value);
         }
-        var orderBy = typeof(T) == typeof(Member) ? "c.lastName, c.firstName, c.id" : "c.id";
+        var nameDirection = query.NameSort == "desc" ? "DESC" : "ASC";
+        var orderBy = typeof(T) == typeof(Member)
+            ? memberDatePhase == 0
+                ? $"c.createdOn {(query.CreatedOnSort == "newest" ? "DESC" : "ASC")}, c.lastName {nameDirection}, c.firstName {nameDirection}, c.id {nameDirection}"
+                : $"c.lastName {nameDirection}, c.firstName {nameDirection}, c.id {nameDirection}"
+            : "c.id";
         var definition = new QueryDefinition($"SELECT * FROM c WHERE {string.Join(" AND ", clauses)} ORDER BY {orderBy}");
         foreach (var parameter in parameters) definition.WithParameter(parameter.Key, parameter.Value);
         return definition;
+    }
+
+    private static MemberDatePosition? DecodeMemberDatePosition(string? encoded)
+    {
+        if (encoded is null) return null;
+        try
+        {
+            var position = JsonSerializer.Deserialize<MemberDatePosition>(encoded, Json.Options);
+            return position is { Phase: 0 or 1 } ? position : throw new JsonException();
+        }
+        catch (JsonException)
+        {
+            throw new ApiException(400, "invalid_cursor", "Invalid continuation token.");
+        }
     }
 }
 

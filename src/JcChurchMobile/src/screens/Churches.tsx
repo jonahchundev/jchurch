@@ -9,7 +9,6 @@ import { api, churchPath, useDebounce, useList } from "../api/hooks";
 import { ApiError, message } from "../api/client";
 import type { Church } from "../api/types";
 import { churchSchema } from "../domain";
-import { useAuth } from "../auth/AuthContext";
 import {
   Button,
   Field,
@@ -29,7 +28,6 @@ import {
 const lastKey = "jchurch:last-church-id";
 export default function Churches({ manage = false }: { manage?: boolean }) {
   const router = useRouter();
-  const { logout } = useAuth();
   const { selected } = useLocalSearchParams<{ selected?: string }>();
   const client = useQueryClient();
   const [search, setSearch] = useState("");
@@ -60,25 +58,11 @@ export default function Churches({ manage = false }: { manage?: boolean }) {
       refreshing={query.isRefetching}
       actions={
         manage ? (
-          <>
-            <IconButton
-              icon="add-outline"
-              label="Create church"
-              onPress={() => setEditing("new")}
-            />
-            <IconButton
-              icon="log-out-outline"
-              label="Log out"
-              onPress={() => {
-                void (async () => {
-                  await client.cancelQueries();
-                  client.clear();
-                  await logout();
-                  router.replace("/login");
-                })();
-              }}
-            />
-          </>
+          <IconButton
+            icon="add-outline"
+            label="Create church"
+            onPress={() => setEditing("new")}
+          />
         ) : (
           <IconButton
             icon="settings-outline"
@@ -192,15 +176,15 @@ function ChurchEditor({
   const [current, setCurrent] = useState(church);
   const [confirmArchive, setConfirmArchive] = useState(false);
   const [confirmPurge, setConfirmPurge] = useState(false);
-  const form = useForm<{ name: string; scanCodesEnabled: boolean; scanCodeFormat: "qr" | "code128" }>({
+  const form = useForm<{ name: string; newMemberDays: string; scanCodesEnabled: boolean; scanCodeFormat: "qr" | "code128" }>({
     resolver: zodResolver(churchSchema),
-    defaultValues: { name: church?.name ?? "", scanCodesEnabled: church?.scanCodesEnabled ?? true, scanCodeFormat: church?.scanCodeFormat ?? "qr" },
+    defaultValues: { name: church?.name ?? "", newMemberDays: String(church?.newMemberDays ?? 6), scanCodesEnabled: church?.scanCodesEnabled ?? true, scanCodeFormat: church?.scanCodeFormat ?? "qr" },
   });
   const save = useMutation({
-    mutationFn: (value: { name: string; scanCodesEnabled: boolean; scanCodeFormat: "qr" | "code128" }) =>
+    mutationFn: (value: { name: string; newMemberDays: string; scanCodesEnabled: boolean; scanCodeFormat: "qr" | "code128" }) =>
       api.save<Church>(
         current ? churchPath(current.id) : "/churches",
-        value,
+        { ...value, newMemberDays: Number(value.newMemberDays) },
         current?._etag,
       ),
     onSuccess: (result) => onSaved(false, result),
@@ -217,7 +201,7 @@ function ChurchEditor({
     mutationFn: () => api.get<Church>(churchPath(current!.id)),
     onSuccess: (result) => {
       setCurrent(result);
-      form.reset({ name: result.name, scanCodesEnabled: result.scanCodesEnabled ?? true, scanCodeFormat: result.scanCodeFormat ?? "qr" });
+      form.reset({ name: result.name, newMemberDays: String(result.newMemberDays ?? 6), scanCodesEnabled: result.scanCodesEnabled ?? true, scanCodeFormat: result.scanCodeFormat ?? "qr" });
       save.reset();
       archive.reset();
       setConfirmArchive(false);
@@ -253,6 +237,22 @@ function ChurchEditor({
               error={fieldState.error?.message}
               editable={!busy}
               required
+            />
+          )}
+        />
+        <Controller
+          control={form.control}
+          name="newMemberDays"
+          render={({ field, fieldState }) => (
+            <Field
+              label="New-member indicator window (days)"
+              value={field.value}
+              onChangeText={field.onChange}
+              onBlur={field.onBlur}
+              keyboardType="number-pad"
+              maxLength={4}
+              error={fieldState.error?.message}
+              editable={!busy}
             />
           )}
         />
