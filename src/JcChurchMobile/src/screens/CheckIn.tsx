@@ -28,9 +28,9 @@ import {
   Row,
   SearchBox,
   SegmentedControl,
-  Select,
   Sheet,
   styles,
+  Toggle,
   ViewTabs,
 } from "../ui";
 import { SessionList } from "./Events";
@@ -269,7 +269,7 @@ function ActiveCheckIn({
   const [registrationOpen, setRegistrationOpen] = useState(false);
   const [nameSort, setNameSort] = useState("asc");
   const [createdOnSort, setCreatedOnSort] = useState("");
-  const [groupId, setGroupId] = useState("");
+  const [groupIds, setGroupIds] = useState<string[]>(occurrence.groupIds ?? []);
   const [sortOpen, setSortOpen] = useState(false);
   useEffect(() => {
     if (!scanEnabled && view === "scan") setView("members");
@@ -281,8 +281,7 @@ function ActiveCheckIn({
   }, [retryAt]);
   const query = useList<Member>(churchPath(event.churchId, "members"), {
     search: useDebounce(search),
-    groupIds: occurrence.groupIds?.join(",") ?? "",
-    groupId: groupId || undefined,
+    groupIds: groupIds.length ? groupIds.join(",") : undefined,
     nameSort,
     createdOnSort: createdOnSort || undefined,
     pageSize: 200,
@@ -463,22 +462,27 @@ function ActiveCheckIn({
       {sortOpen && (
         <Sheet title="Member sort and filter" onClose={() => setSortOpen(false)}>
           <View style={styles.stack}>
-            <Select
-              label="Group or subgroup"
-              value={groupId}
-              onChange={setGroupId}
-              options={[
-                { value: "", label: "All groups" },
-                ...(groups.data ?? [])
-                  .filter((group) => group.active)
-                  .map((group) => ({
-                    value: group.id,
-                    label: group.parentGroupId
+            <Label small>Group or subgroup</Label>
+            <Label small muted>Leave all unchecked to show every member.</Label>
+            {(groups.data ?? [])
+              .filter((group) => group.active)
+              .map((group) => (
+                <Toggle
+                  key={group.id}
+                  compact
+                  label={
+                    group.parentGroupId
                       ? `${groups.data?.find((parent) => parent.id === group.parentGroupId)?.name ?? "Group"} / ${group.name}`
-                      : group.name,
-                  })),
-              ]}
-            />
+                      : group.name
+                  }
+                  value={groupIds.includes(group.id)}
+                  onChange={(checked) =>
+                    setGroupIds((current) =>
+                      checked ? [...current, group.id] : current.filter((id) => id !== group.id),
+                    )
+                  }
+                />
+              ))}
             <SegmentedControl label="Name order" value={nameSort} onChange={setNameSort} options={[
               { value: "asc", label: "A-Z" },
               { value: "desc", label: "Z-A" },

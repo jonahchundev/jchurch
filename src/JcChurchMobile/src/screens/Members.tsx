@@ -58,7 +58,7 @@ export default function Members() {
   }>();
   const client = useQueryClient();
   const [search, setSearch] = useState("");
-  const [groupId, setGroupId] = useState("");
+  const [groupIds, setGroupIds] = useState<string[]>([]);
   const [nameSort, setNameSort] = useState("asc");
   const [createdOnSort, setCreatedOnSort] = useState("");
   const [sortOpen, setSortOpen] = useState(false);
@@ -74,7 +74,7 @@ export default function Members() {
   });
   const query = useList<Member>(path, {
     search: useDebounce(search),
-    groupId: groupId || undefined,
+    groupIds: groupIds.length ? groupIds.join(",") : undefined,
     nameSort,
     createdOnSort: createdOnSort || undefined,
     pageSize: 200,
@@ -197,22 +197,27 @@ export default function Members() {
       {sortOpen && (
         <Sheet title="Member sort and filter" onClose={() => setSortOpen(false)}>
           <View style={styles.stack}>
-            <Select
-              label="Group or subgroup"
-              value={groupId}
-              onChange={setGroupId}
-              options={[
-                { value: "", label: "All groups" },
-                ...(groups.data ?? [])
-                  .filter((group) => group.active)
-                  .map((group) => ({
-                    value: group.id,
-                    label: group.parentGroupId
+            <Label small>Group or subgroup</Label>
+            <Label small muted>Leave all unchecked to show every group.</Label>
+            {(groups.data ?? [])
+              .filter((group) => group.active)
+              .map((group) => (
+                <Toggle
+                  key={group.id}
+                  compact
+                  label={
+                    group.parentGroupId
                       ? `${groups.data?.find((parent) => parent.id === group.parentGroupId)?.name ?? "Group"} / ${group.name}`
-                      : group.name,
-                  })),
-              ]}
-            />
+                      : group.name
+                  }
+                  value={groupIds.includes(group.id)}
+                  onChange={(checked) =>
+                    setGroupIds((current) =>
+                      checked ? [...current, group.id] : current.filter((id) => id !== group.id),
+                    )
+                  }
+                />
+              ))}
             <SegmentedControl label="Name order" value={nameSort} onChange={setNameSort} options={[
               { value: "asc", label: "A-Z" },
               { value: "desc", label: "Z-A" },

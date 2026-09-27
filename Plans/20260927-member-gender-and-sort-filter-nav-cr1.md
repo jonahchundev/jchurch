@@ -13,6 +13,11 @@ user-selectable group filter). Also simplify navigation: drop "Manage groups" fr
 (redundant with Home), drop "Search members" from Home (redundant with "Manage members"), and
 move "Manage groups" directly below "Manage members" on Home.
 
+Part 3: Replace the single-select "Group or subgroup" dropdown inside the "Member sort and
+filter" Sheet (both screens) with a checkbox list, so admins can filter by more than one
+group/subgroup at once. Reuses the existing `Toggle` multi-select pattern already used for a
+member's own `groupIds` in MemberEditor. No backend changes needed.
+
 ## Decisions
 - Gender UI control: reuse existing `Select` dropdown (same pattern as `memberType`), options
   `Male` / `Female`. No new radio-button component.
@@ -26,6 +31,9 @@ move "Manage groups" directly below "Manage members" on Home.
   `GroupId` is also set) is in scope because it directly blocks the Check-in group-filter feature
   from working correctly against real Cosmos DB.
 - Settings' "Manage custom fields" row is kept; only "Manage groups" is removed from Settings.
+- Part 3's group filter checkboxes reuse the existing `Toggle` component (no new checkbox
+  primitive). Check-in's occurrence-group scoping becomes a *default checkbox selection* rather
+  than an always-on hard filter, since `CheckInService` never enforces it server-side.
 
 ## Steps
 
@@ -104,6 +112,20 @@ move "Manage groups" directly below "Manage members" on Home.
     filter and no standalone dropdown; Settings no longer shows "Manage groups"; Home page order
     is Manage members, Manage groups, Manage events, Start check-in (no Search members).
 
+### Phase 11 — Group filter checkboxes (multi-select)
+20. `src/JcChurchMobile/src/screens/Members.tsx` — change `groupId: string` state to
+    `groupIds: string[]`; query param becomes `groupIds: groupIds.length ? groupIds.join(",") :
+    undefined`; replace the `Select` "Group or subgroup" control inside the sort/filter Sheet
+    with a `Toggle` checklist (same pattern as the member's own group-assignment checkboxes),
+    OR-matching any checked group; add a short caption noting unchecked = all groups.
+21. `src/JcChurchMobile/src/screens/CheckIn.tsx` — change `groupId: string` state to
+    `groupIds: string[]`, defaulted to `occurrence.groupIds ?? []`; collapse the occurrence-scoped
+    `groupIds` param and the old single `groupId` param into one `groupIds` param driven by the
+    checkboxes; replace the Sheet's `Select` with the same `Toggle` checklist. Unchecking all
+    boxes now shows every member (a deliberate loosening since `CheckInService` never
+    server-enforces occurrence group scoping).
+22. No backend/OpenAPI/generated-type changes required for Phase 11.
+
 ## Relevant files
 - `src/jchurchFunction/Domain/Documents.cs`
 - `src/jchurchFunction/Services/DirectoryService.cs`
@@ -121,6 +143,7 @@ move "Manage groups" directly below "Manage members" on Home.
 - `app/church/[churchId]/index.tsx`
 
 ## Scope boundaries
-- No new UI primitive (no radio button); reusing existing `Select`.
+- No new UI primitive (no radio button, no new checkbox component); reusing existing `Select`
+  and `Toggle`.
 - No migration/backfill for existing members lacking gender.
 - No changes to reporting/attendance screens.
