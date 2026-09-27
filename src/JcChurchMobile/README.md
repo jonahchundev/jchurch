@@ -36,6 +36,8 @@ iOS requires Xcode, its command-line tools, and an installed simulator. Android 
 
 Set each value to a complete HTTP(S) API base, with or without a path prefix. `/api/v1`, `/api/v2`, and custom paths are all valid; the local Functions defaults use `/api/v1`. Local web development keeps browser requests at `/api/v1` and Metro proxies the remaining resource path to `EXPO_PUBLIC_API_URL_WEB`. Exported web builds call `EXPO_PUBLIC_API_URL_WEB` directly, so set it before `npm run export:web` and configure the Function App CORS origin. iOS and Android call their selected URL directly. Restart Metro after changing environment values. Public Expo environment values are bundled into the client and must never contain secrets.
 
+`EXPO_PUBLIC_REGISTRATION_BASE_URL` is the base origin used to build public registration links and QR codes (see Public Registration below). Defaults to `http://localhost:8081` for local web development; set it to the deployed Static Web App hostname (or a custom domain) before `npm run export:web`.
+
 Physical phones cannot use the computer's localhost address. Testing on physical phones requires an explicitly approved, network-restricted development endpoint and connectivity arrangement. Do not expose the anonymous API publicly or relax its guards to make a phone connection work. Release builds require an approved HTTPS API.
 
 ## Workflows
@@ -50,6 +52,36 @@ Physical phones cannot use the computer's localhost address. Testing on physical
 - Scan check-in: select a session, Begin Check-In, then choose Scan. Enter a complete code with Enter or activate the native camera. Recognized codes submit automatically with no per-member tap. Unknown codes do not create attendance. Uncertain results pause scanning and use read-only status recovery, never automatic repeat writes.
 
 Native camera support uses `expo-camera` and requires a compatible development build/Expo Go runtime and camera permission. Rebuild development binaries after changing native plugins. The web preview supports typing and keyboard-wedge scanners, not browser camera capture. Check permission denial, background/resume, print/share, and QR/Code 128 readability on real devices before a pilot. Long barcodes can be dense on small displays; prefer QR or a tested printed card. Codes are copyable identifiers, not authentication. Reissue deletes the previous lookup without retaining history; intentionally reusing a retired value can make an old card valid again.
+
+### Public Registration
+
+The "New registration" icon on the Members screen and the Check-in screen (once a session is
+selected) opens a QR code and link for self-service registration, at:
+
+- `{EXPO_PUBLIC_REGISTRATION_BASE_URL}/register/{churchId}` — general registration; saves a
+  new member (child or adult) only.
+- `{EXPO_PUBLIC_REGISTRATION_BASE_URL}/register/{churchId}/{eventId}/{occurrenceId}` — session
+  registration; saves the member and immediately checks them in for that occurrence.
+
+Examples, using the local dev default (`EXPO_PUBLIC_REGISTRATION_BASE_URL=http://localhost:8081`):
+
+```text
+http://localhost:8081/register/church_a1b2c3
+http://localhost:8081/register/church_a1b2c3/event_sunday/occ_9f2a1c
+```
+
+And against a deployed Static Web App (or custom domain) base URL:
+
+```text
+https://swa-jchurch-prod-qzapi27pwztpy.azurestaticapps.net/register/church_a1b2c3
+https://swa-jchurch-prod-qzapi27pwztpy.azurestaticapps.net/register/church_a1b2c3/event_sunday/occ_9f2a1c
+```
+
+Both pages are public and unauthenticated (same as the rest of this anonymous API) and support a
+Child/Adult toggle. Choosing Child requires guardian1 name, phone, and email; choosing Adult hides
+guardian/school fields entirely. There is no pending/approval step — registrations are saved as
+active members immediately, and there is no rate limiting on these endpoints, consistent with the
+project's current development-only safety posture (see Development Only above).
 
 Event schedules are immutable. Recurrence generation uses the backend's seven-days-back/90-days-ahead window. DST gaps and ambiguous initial times are rejected. Existing custom recurrence rules are preserved when renaming events.
 

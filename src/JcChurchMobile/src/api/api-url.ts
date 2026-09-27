@@ -48,6 +48,13 @@ export function getWebProxyTarget(value?: string) {
 	return normalizeApiUrl(value ?? defaults.web, "EXPO_PUBLIC_API_URL_WEB");
 }
 
+// Base for public registration links/QR codes; falls back to the current browser origin.
+export function registrationBaseUrl(value?: string) {
+	if (value) return value.replace(/\/$/, "");
+	if (typeof window !== "undefined" && window.location?.origin) return window.location.origin;
+	return "http://localhost:8081";
+}
+
 export function proxyRequestPath(requestUrl: string, target: URL) {
 	if (!requestUrl.startsWith(`${webProxyPath}/`))
 		throw new Error(`Expected a request path beginning with ${webProxyPath}/.`);

@@ -130,6 +130,60 @@ export const memberSchema = z.object({
 });
 export type MemberFormValues = z.infer<typeof memberSchema>;
 
+// Stricter than memberSchema: public self-registration always requires guardian1 contact
+// details for a child, since there is no staff to follow up on missing information.
+export const publicRegistrationSchema = z.object({
+  memberType: z.enum(["child", "adult"]),
+  allergyDetail: optionalText(1000),
+  firstName: z.string().trim().min(1, "First name is required.").max(200),
+  lastName: z.string().trim().min(1, "Last name is required.").max(200),
+  middleName: optionalText(200),
+  school: optionalText(200),
+  birthDate: z
+    .string()
+    .refine(
+      (value) =>
+        !value ||
+        (DateTime.fromISO(value).isValid &&
+          /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+          value <= DateTime.utc().toISODate()!),
+      "Choose a valid birth date that is not in the future.",
+    ),
+  guardian1: guardianSchema.optional(),
+  guardian2: guardianSchema.optional(),
+}).superRefine((values, context) => {
+  if (values.memberType === "child") {
+    const guardian = values.guardian1;
+    if (!guardian || !guardian.firstName.trim() || !guardian.lastName.trim() || !guardian.phone.trim() || !guardian.email.trim())
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["guardian1"], message: "Guardian 1 name, phone, and email are required." });
+  } else if (values.guardian1 || values.guardian2) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["guardian1"], message: "Adults cannot have guardian information." });
+  }
+  for (const [path, guardian] of [["guardian1", values.guardian1], ["guardian2", values.guardian2]] as const) {
+    if (guardian?.relationship === "Others" && !guardian.otherRelationship.trim())
+      context.addIssue({ code: z.ZodIssueCode.custom, path: [path, "otherRelationship"], message: "Describe the relationship." });
+    if (guardian && guardian.relationship !== "Others" && guardian.otherRelationship.trim())
+      context.addIssue({ code: z.ZodIssueCode.custom, path: [path, "otherRelationship"], message: "Only use this field for Others." });
+  }
+});
+export type PublicRegistrationFormValues = z.infer<typeof publicRegistrationSchema>;
+
+export function publicMemberInput(values: PublicRegistrationFormValues): MemberInput {
+  return {
+    memberType: values.memberType,
+    firstName: values.firstName,
+    lastName: values.lastName,
+    middleName: values.middleName || null,
+    school: values.memberType === "child" ? values.school || null : null,
+    allergyDetail: values.allergyDetail || null,
+    birthDate: values.birthDate || null,
+    guardian1: values.memberType === "child" ? values.guardian1 : undefined,
+    guardian2: values.memberType === "child" ? values.guardian2 : undefined,
+    groupIds: [],
+    customFields: {},
+  };
+}
+
 export function memberInput(
   values: MemberFormValues,
   definitions: CustomField[],

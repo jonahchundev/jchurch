@@ -5,7 +5,7 @@ import {
   selectApiBaseUrl,
 } from "../src/api/api-url";
 import { ApiError, createApi, queryString } from "../src/api/client";
-import { attendanceRange, describeRecurrence, localToUtc, memberInput, memberSchema, normalizeScanCode, timeZoneLabel } from "../src/domain";
+import { attendanceRange, describeRecurrence, localToUtc, memberInput, memberSchema, normalizeScanCode, publicMemberInput, publicRegistrationSchema, timeZoneLabel } from "../src/domain";
 import { splitGroupImportRow, splitImportRow } from "../src/csvSchema";
 
 describe("API contracts", () => {
@@ -323,6 +323,58 @@ describe("dates and validation", () => {
     expect(input.school).toBeNull();
     expect(input.guardian1).toBeUndefined();
     expect(input.guardian2).toBeUndefined();
+  });
+  it("requires guardian1 contact details for public child registration", () => {
+    const child = {
+      memberType: "child" as const,
+      allergyDetail: "",
+      firstName: "Child",
+      lastName: "Test",
+      middleName: "",
+      school: "",
+      birthDate: "",
+      guardian1: {
+        firstName: "Maria",
+        middleName: "",
+        lastName: "Test",
+        relationship: "Mother" as const,
+        otherRelationship: "",
+        phone: "555-0100",
+        email: "maria@example.com",
+      },
+    };
+    expect(publicRegistrationSchema.safeParse(child).success).toBe(true);
+    expect(publicRegistrationSchema.safeParse({ ...child, guardian1: undefined }).success).toBe(false);
+    expect(publicRegistrationSchema.safeParse({ ...child, guardian1: { ...child.guardian1, phone: "" } }).success).toBe(false);
+    expect(publicRegistrationSchema.safeParse({ ...child, guardian1: { ...child.guardian1, email: "" } }).success).toBe(false);
+  });
+  it("accepts public adult registration without guardian or school, rejects guardian on adult", () => {
+    const adult = {
+      memberType: "adult" as const,
+      allergyDetail: "",
+      firstName: "Adult",
+      lastName: "Member",
+      middleName: "",
+      school: "",
+      birthDate: "",
+    };
+    const parsed = publicRegistrationSchema.parse(adult);
+    expect(publicRegistrationSchema.safeParse(adult).success).toBe(true);
+    expect(publicMemberInput(parsed).guardian1).toBeUndefined();
+    expect(
+      publicRegistrationSchema.safeParse({
+        ...adult,
+        guardian1: {
+          firstName: "Maria",
+          middleName: "",
+          lastName: "Test",
+          relationship: "Mother" as const,
+          otherRelationship: "",
+          phone: "555-0100",
+          email: "maria@example.com",
+        },
+      }).success,
+    ).toBe(false);
   });
   it("converts an event wall time in its timezone", () => {
     expect(localToUtc("2026-09-20T09:00", "America/New_York")).toBe(

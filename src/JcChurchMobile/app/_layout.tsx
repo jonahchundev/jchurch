@@ -37,6 +37,14 @@ export default function RootLayout() {
           name="church/[churchId]"
           options={{ headerShown: false }}
         />
+        <Stack.Screen
+          name="register/[churchId]/index"
+          options={{ title: "Registration" }}
+        />
+        <Stack.Screen
+          name="register/[churchId]/[eventId]/[occurrenceId]"
+          options={{ title: "Registration" }}
+        />
       </Stack>
     </Providers>
   );

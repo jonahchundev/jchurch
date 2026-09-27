@@ -14,6 +14,8 @@ import type {
   Occurrence,
 } from "../api/types";
 import { guardianIncomplete, memberAge, sessionTime } from "../domain";
+import { registrationBaseUrl } from "../api/api-url";
+import { RegistrationCode } from "../RegistrationCode";
 import {
   Button,
   Heading,
@@ -263,6 +265,7 @@ function ActiveCheckIn({
   const [receipts, setReceipts] = useState<Record<string, ReceiptState>>({});
   const [retryAt, setRetryAt] = useState(0);
   const [now, setNow] = useState(Date.now());
+  const [registrationOpen, setRegistrationOpen] = useState(false);
   useEffect(() => {
     if (!scanEnabled && view === "scan") setView("members");
   }, [scanEnabled, view]);
@@ -327,6 +330,7 @@ function ActiveCheckIn({
         </View>
         <IconButton icon="swap-horizontal-outline" label="Change session" disabled={checkIn.isPending || scanLocked} onPress={onChange} />
         <IconButton icon="create-outline" label="Edit session" disabled={checkIn.isPending || scanLocked} onPress={() => router.navigate({ pathname: "/church/[churchId]/events", params: { churchId: event.churchId, eventId: event.id, occurrenceId: occurrence.id, returnTo: "check-in" } })} />
+        <IconButton icon="qr-code-outline" label="New registration" disabled={checkIn.isPending || scanLocked} onPress={() => setRegistrationOpen(true)} />
       </View>
       <Page title="Check-in" compact>
         <ViewTabs
@@ -434,6 +438,14 @@ function ActiveCheckIn({
           </>
         )}
       </Page>
+      {registrationOpen && (
+        <RegistrationCode
+          title="Session registration"
+          subtitle={`${event.name} · ${sessionTime(occurrence.startsAt, event.timeZone)}`}
+          url={`${registrationBaseUrl()}/register/${event.churchId}/${event.id}/${occurrence.id}`}
+          onClose={() => setRegistrationOpen(false)}
+        />
+      )}
     </View>
   );
 }
