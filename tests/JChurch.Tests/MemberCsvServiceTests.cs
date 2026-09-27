@@ -97,17 +97,17 @@ public sealed class MemberCsvServiceTests
 
         var badGroup = new MemberImportRow(null, "adult", "Ada", null, "Lovelace", null, null, null, null, null, "NoSuchGroup",
             null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
-        var missingGuardian = new MemberImportRow(null, "child", "Kid", null, "One", null, null, null, null, null, null,
+        var childNoGuardian = new MemberImportRow(null, "child", "Kid", null, "One", null, null, null, null, null, null,
             null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
         var good = new MemberImportRow(null, "adult", "Grace", null, "Hopper", null, null, null, null, null, null,
             null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
 
-        var result = await csv.Import(church.Id, [badGroup, missingGuardian, good], default);
+        var result = await csv.Import(church.Id, [badGroup, childNoGuardian, good], default);
 
-        Assert.Equal(1, result.Created);
-        Assert.Equal(2, result.Failed);
+        Assert.Equal(2, result.Created);
+        Assert.Equal(1, result.Failed);
         Assert.Equal("error", result.Results[0].Action);
-        Assert.Equal("error", result.Results[1].Action);
+        Assert.Equal("created", result.Results[1].Action);
         Assert.Equal("created", result.Results[2].Action);
     }
 

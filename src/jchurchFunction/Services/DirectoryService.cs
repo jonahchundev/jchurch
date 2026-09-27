@@ -19,18 +19,23 @@ public sealed class DirectoryService(Repositories repositories, TimeProvider clo
 
     public static void Name(string? value, string field) => Require(!string.IsNullOrWhiteSpace(value) && value.Length <= 200, $"{field} is required and must be at most 200 characters.");
 
-    private static Guardian ValidateGuardian(Guardian guardian, string field)
+    // Guardian info is fully optional; only non-blank fields are format/length validated.
+    private static Guardian? ValidateGuardian(Guardian? guardian, string field)
     {
-        Name(guardian.FirstName, $"{field}.firstName");
-        Name(guardian.LastName, $"{field}.lastName");
+        if (guardian is null || EmptyGuardian(guardian)) return null;
+        Require(guardian.FirstName.Length <= 200, $"{field}.firstName is too long.");
+        Require(guardian.LastName.Length <= 200, $"{field}.lastName is too long.");
         Require(guardian.MiddleName?.Length is not > 200, $"{field}.middleName is too long.");
-        Require(guardian.Relationship is "Mother" or "Father" or "Grandmother" or "Grandfather" or "Others", $"Invalid {field}.relationship.");
-        if (guardian.Relationship == "Others")
-            Require(!string.IsNullOrWhiteSpace(guardian.OtherRelationship) && guardian.OtherRelationship.Length <= 50, $"{field}.otherRelationship is required and must be at most 50 characters.");
-        else
-            Require(string.IsNullOrWhiteSpace(guardian.OtherRelationship), $"{field}.otherRelationship is only allowed when relationship is Others.");
-        Require(!string.IsNullOrWhiteSpace(guardian.Phone) && guardian.Phone.Length <= 50, $"{field}.phone is required and must be at most 50 characters.");
-        Require(!string.IsNullOrWhiteSpace(guardian.Email) && guardian.Email.Length <= 254 && MailAddress.TryCreate(guardian.Email, out var address) && address.Address == guardian.Email, $"Invalid {field}.email.");
+        if (!string.IsNullOrWhiteSpace(guardian.Relationship))
+        {
+            Require(guardian.Relationship is "Mother" or "Father" or "Grandmother" or "Grandfather" or "Others", $"Invalid {field}.relationship.");
+            if (guardian.Relationship == "Others")
+                Require(!string.IsNullOrWhiteSpace(guardian.OtherRelationship) && guardian.OtherRelationship.Length <= 50, $"{field}.otherRelationship is required and must be at most 50 characters.");
+            else
+                Require(string.IsNullOrWhiteSpace(guardian.OtherRelationship), $"{field}.otherRelationship is only allowed when relationship is Others.");
+        }
+        Require(guardian.Phone.Length <= 50, $"{field}.phone is too long.");
+        Require(string.IsNullOrWhiteSpace(guardian.Email) || (guardian.Email.Length <= 254 && MailAddress.TryCreate(guardian.Email, out var address) && address.Address == guardian.Email), $"Invalid {field}.email.");
         return guardian with
         {
             FirstName = guardian.FirstName.Trim(),
@@ -106,11 +111,10 @@ public sealed class DirectoryService(Repositories repositories, TimeProvider clo
                 Require(member.Email is null || (member.Email.Length <= 254 && MailAddress.TryCreate(member.Email, out var address) && address.Address == member.Email), "Invalid email address.");
                 if (member.MemberType == "child")
                 {
-                    Require(member.Guardian1 is not null, "guardian1 is required for child members.");
                     member = member with
                     {
-                        Guardian1 = ValidateGuardian(member.Guardian1!, "guardian1"),
-                        Guardian2 = member.Guardian2 is null ? null : ValidateGuardian(member.Guardian2, "guardian2")
+                        Guardian1 = ValidateGuardian(member.Guardian1, "guardian1"),
+                        Guardian2 = ValidateGuardian(member.Guardian2, "guardian2")
                     };
                 }
                 else

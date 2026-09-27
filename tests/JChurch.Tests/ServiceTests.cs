@@ -126,7 +126,7 @@ public sealed class ServiceTests
     }
 
     [Fact]
-    public async Task ChildGuardiansRequireContactDetailsAndLimitOtherRelationship()
+    public async Task ChildGuardiansAreOptionalButValidateProvidedFields()
     {
         var repositories = Memory();
         var service = new DirectoryService(repositories, TimeProvider.System);
@@ -143,9 +143,16 @@ public sealed class ServiceTests
         var child = await service.Save(new Member { MemberType = "child", FirstName = "Child", LastName = "Test", Guardian1 = guardian }, church.Id);
         Assert.Equal(guardian.OtherRelationship, child.Guardian1!.OtherRelationship);
 
-        var missingPhone = guardian with { Phone = "" };
-        var phoneError = await Assert.ThrowsAsync<ApiException>(() => service.Save(new Member { MemberType = "child", FirstName = "Child", LastName = "Phone", Guardian1 = missingPhone }, church.Id));
-        Assert.Contains("phone is required", phoneError.Message);
+        var noGuardian = await service.Save(new Member { MemberType = "child", FirstName = "Child", LastName = "NoGuardian" }, church.Id);
+        Assert.Null(noGuardian.Guardian1);
+
+        var partial = await service.Save(new Member { MemberType = "child", FirstName = "Child", LastName = "Partial", Guardian1 = new Guardian { FirstName = "Sam", Phone = "555-0199" } }, church.Id);
+        Assert.Equal("Sam", partial.Guardian1!.FirstName);
+        Assert.Equal("", partial.Guardian1!.LastName);
+
+        var badEmail = guardian with { Email = "not-an-email" };
+        var emailError = await Assert.ThrowsAsync<ApiException>(() => service.Save(new Member { MemberType = "child", FirstName = "Child", LastName = "Email", Guardian1 = badEmail }, church.Id));
+        Assert.Contains("Invalid guardian1.email", emailError.Message);
 
         var longOther = guardian with { OtherRelationship = new string('x', 51) };
         var relationshipError = await Assert.ThrowsAsync<ApiException>(() => service.Save(new Member { MemberType = "child", FirstName = "Child", LastName = "Relationship", Guardian1 = longOther }, church.Id));

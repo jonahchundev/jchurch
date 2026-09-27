@@ -13,7 +13,7 @@ import type {
   Member,
   Occurrence,
 } from "../api/types";
-import { memberAge, sessionTime } from "../domain";
+import { guardianIncomplete, memberAge, sessionTime } from "../domain";
 import {
   Button,
   Heading,
@@ -274,6 +274,7 @@ function ActiveCheckIn({
   const query = useList<Member>(churchPath(event.churchId, "members"), {
     search: useDebounce(search),
     groupIds: occurrence.groupIds?.join(",") ?? "",
+    pageSize: 200,
   });
   const groups = useAll<Group>(churchPath(event.churchId, "groups"), {
     includeArchived: true,
@@ -380,17 +381,22 @@ function ActiveCheckIn({
                   member.school ?? "",
                   groupNames(member, groups.data ?? []),
                 ].filter(Boolean).join(" · ");
+                const incomplete = guardianIncomplete(member);
+                const checkedInBadge = state?.receipt
+                  ? `${state.already ? "Already checked in" : "Checked in"} · ${DateTime.fromISO(state.receipt.checkedInAt).setZone(event.timeZone).toFormat("LLL d, h:mm a")}`
+                  : undefined;
+                const badge = [
+                  incomplete ? "Guardian info incomplete" : "",
+                  checkedInBadge ?? "",
+                ].filter(Boolean).join(" · ");
                 return (
                   <View key={member.id} style={{ paddingBottom: 14, gap: 8 }}>
                     <Row
                       title={memberName(member)}
                       subtitle={details || undefined}
+                      badge={badge || undefined}
+                      badgeTone={incomplete ? "danger" : "default"}
                       icon="person-outline"
-                      badge={
-                        state?.receipt
-                          ? `${state.already ? "Already checked in" : "Checked in"} · ${DateTime.fromISO(state.receipt.checkedInAt).setZone(event.timeZone).toFormat("LLL d, h:mm a")}`
-                          : undefined
-                      }
                       trailing={
                         !state?.receipt ? (
                           <Button

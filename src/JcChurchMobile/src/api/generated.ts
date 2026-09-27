@@ -70,6 +70,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/churches/{churchId}/purge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                churchId: components["parameters"]["churchId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** @description Permanently and irreversibly deletes the church and all associated groups, members, custom fields, events, occurrences, and attendance records. The church must already be archived (409 not_archived otherwise). Safe to retry after a failure; already-deleted documents are skipped. */
+        delete: operations["purgeChurch"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/churches/{churchId}/groups": {
         parameters: {
             query?: never;
@@ -547,20 +566,20 @@ export interface components {
             parentGroupId?: string | null;
         };
         GuardianInput: {
-            firstName: string;
+            firstName?: string | null;
             middleName?: string | null;
-            lastName: string;
-            /** @enum {string} */
-            relationship: "Mother" | "Father" | "Grandmother" | "Grandfather" | "Others";
+            lastName?: string | null;
+            /** @enum {string|null} */
+            relationship?: "Mother" | "Father" | "Grandmother" | "Grandfather" | "Others" | null;
             /** @description Required when relationship is Others. */
             otherRelationship?: string | null;
-            phone: string;
+            phone?: string | null;
             /** Format: email */
-            email: string;
+            email?: string | null;
         };
         MemberInput: {
             /**
-             * @description Children require guardian1; adults cannot have school or guardian information.
+             * @description Adults cannot have school or guardian information.
              * @enum {string}
              */
             memberType: "child" | "adult";
@@ -582,7 +601,7 @@ export interface components {
             phone?: string | null;
             /** Format: email */
             email?: string | null;
-            /** @description Required for child members; forbidden for adults. */
+            /** @description Optional for child members; forbidden for adults. */
             guardian1?: components["schemas"]["GuardianInput"];
             /** @description Optional for child members; forbidden for adults. */
             guardian2?: components["schemas"]["GuardianInput"];
@@ -941,6 +960,30 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Archived; all history retained */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    purgeChurch: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Exact _etag from the last read; missing returns 428 and stale returns 412. */
+                "If-Match": components["parameters"]["IfMatch"];
+            };
+            path: {
+                churchId: components["parameters"]["churchId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Permanently deleted; cannot be undone */
             204: {
                 headers: {
                     [name: string]: unknown;
