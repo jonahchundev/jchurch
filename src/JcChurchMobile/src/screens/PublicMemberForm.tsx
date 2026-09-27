@@ -165,6 +165,26 @@ export function PublicMemberForm({
       ))}
       <Controller
         control={form.control}
+        name="gender"
+        render={({ field, fieldState }) => (
+          <View>
+            <Select
+              label="Gender"
+              value={field.value ?? ""}
+              onChange={field.onChange}
+              required
+              options={[
+                { value: "", label: "" },
+                { value: "Male", label: "Male" },
+                { value: "Female", label: "Female" },
+              ]}
+            />
+            {!!fieldState.error && <Notice error>{fieldState.error.message}</Notice>}
+          </View>
+        )}
+      />
+      <Controller
+        control={form.control}
         name="birthDate"
         render={({ field, fieldState }) => (
           <DateField label="Birth date" value={field.value ?? ""} onChange={field.onChange} error={fieldState.error?.message} />

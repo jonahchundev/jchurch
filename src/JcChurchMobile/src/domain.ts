@@ -115,6 +115,7 @@ export const memberSchema = z.object({
   scanCodeFormat: z.enum(["qr", "code128"]).optional(),
   firstName: z.string().trim().min(1, "First name is required.").max(200),
   lastName: z.string().trim().min(1, "Last name is required.").max(200),
+  gender: z.enum(["Male", "Female"], { message: "Gender is required." }),
   middleName: optionalText(200),
   school: optionalText(200),
   phone: optionalText(50),
@@ -150,6 +151,7 @@ export const publicRegistrationSchema = z.object({
   allergyDetail: optionalText(1000),
   firstName: z.string().trim().min(1, "First name is required.").max(200),
   lastName: z.string().trim().min(1, "Last name is required.").max(200),
+  gender: z.enum(["Male", "Female"], { message: "Gender is required." }),
   middleName: optionalText(200),
   school: optionalText(200),
   birthDate: z
@@ -187,6 +189,7 @@ export function publicMemberInput(values: PublicRegistrationFormValues): MemberI
     memberType: values.memberType,
     firstName: values.firstName,
     lastName: values.lastName,
+    gender: values.gender as "Male" | "Female",
     middleName: values.middleName || null,
     school: values.memberType === "child" ? values.school || null : null,
     allergyDetail: values.allergyDetail || null,
@@ -216,6 +219,7 @@ export function publicRegistrationDefaults(member?: {
   memberType?: string;
   firstName?: string | null;
   lastName?: string | null;
+  gender?: string | null;
   middleName?: string | null;
   birthDate?: string | null;
   school?: string | null;
@@ -229,6 +233,7 @@ export function publicRegistrationDefaults(member?: {
     allergyDetail: member?.allergyDetail ?? "",
     firstName: member?.firstName ?? "",
     lastName: member?.lastName ?? "",
+    gender: (member?.gender === "Male" || member?.gender === "Female" ? member.gender : "") as PublicRegistrationFormValues["gender"],
     middleName: member?.middleName ?? "",
     school: member?.school ?? "",
     birthDate: member?.birthDate ?? "",
@@ -280,6 +285,7 @@ export function memberInput(
   }
   return {
     ...values,
+    gender: values.gender as "Male" | "Female",
     ...(values.scanCode !== undefined ? {
       scanCode: values.scanCode.trim() ? normalizeScanCode(values.scanCode) : null,
       scanCodeFormat: values.scanCode.trim() ? values.scanCodeFormat ?? "qr" : null,

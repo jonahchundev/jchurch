@@ -26,8 +26,28 @@ public sealed class MemberCsvServiceTests
         var template = await csv.ImportTemplate(church.Id, default);
         var header = template.Split('\n')[0].TrimEnd('\r');
         Assert.Contains("Id,MemberType,FirstName", header);
+        Assert.Contains("LastName,Gender,BirthDate", header);
         Assert.EndsWith("Allergy Info", header);
         Assert.Single(template.TrimEnd('\n', '\r').Split('\n'));
+    }
+
+    [Fact]
+    public async Task ExportImportRoundTripsGender()
+    {
+        var (repositories, directory, csv) = Setup();
+        var church = await directory.Save(new Church { Name = "Gender" }, null);
+        await directory.Save(new Member { MemberType = "adult", FirstName = "Ada", LastName = "Lovelace", Gender = "Female" }, church.Id);
+
+        var text = await csv.ExportCsv(church.Id, default);
+        var lines = text.TrimEnd('\n', '\r').Split('\n');
+        Assert.Contains("Female", lines[1]);
+
+        var row = new MemberImportRow(null, "adult", "Grace", null, "Hopper", "Female", null, null, null, null, null, null,
+            null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        var result = await csv.Import(church.Id, [row], default);
+        Assert.Equal(1, result.Created);
+        var created = (await repositories.Members.Search(new Query { ChurchId = church.Id })).Items.Single(member => member.LastName == "Hopper");
+        Assert.Equal("Female", created.Gender);
     }
 
     [Fact]
@@ -60,7 +80,7 @@ public sealed class MemberCsvServiceTests
         var group = await directory.Save(new Group { Name = "Youth" }, church.Id);
         var field = await directory.Save(new CustomField { Name = "Notes", FieldType = "text" }, church.Id);
 
-        var row = new MemberImportRow(null, "adult", "Ada", null, "Lovelace", null, null, null, null, null, "Youth",
+        var row = new MemberImportRow(null, "adult", "Ada", null, "Lovelace", null, null, null, null, null, null, "Youth",
             null, null, null, null, null, null, null, null, null, null, null, null, null, null,
             new() { ["Notes"] = "VIP" });
         var result = await csv.Import(church.Id, [row], default);
@@ -79,7 +99,7 @@ public sealed class MemberCsvServiceTests
         var church = await directory.Save(new Church { Name = "Update" }, null);
         var member = await directory.Save(new Member { MemberType = "adult", FirstName = "Ada", LastName = "Lovelace" }, church.Id);
 
-        var row = new MemberImportRow(member.Id, "adult", "Ada", null, "Byron", null, null, null, null, null, null,
+        var row = new MemberImportRow(member.Id, "adult", "Ada", null, "Byron", null, null, null, null, null, null, null,
             null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
         var result = await csv.Import(church.Id, [row], default);
 
@@ -95,11 +115,11 @@ public sealed class MemberCsvServiceTests
         var (_, directory, csv) = Setup();
         var church = await directory.Save(new Church { Name = "Errors" }, null);
 
-        var badGroup = new MemberImportRow(null, "adult", "Ada", null, "Lovelace", null, null, null, null, null, "NoSuchGroup",
+        var badGroup = new MemberImportRow(null, "adult", "Ada", null, "Lovelace", null, null, null, null, null, null, "NoSuchGroup",
             null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
-        var childNoGuardian = new MemberImportRow(null, "child", "Kid", null, "One", null, null, null, null, null, null,
+        var childNoGuardian = new MemberImportRow(null, "child", "Kid", null, "One", null, null, null, null, null, null, null,
             null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
-        var good = new MemberImportRow(null, "adult", "Grace", null, "Hopper", null, null, null, null, null, null,
+        var good = new MemberImportRow(null, "adult", "Grace", null, "Hopper", null, null, null, null, null, null, null,
             null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
 
         var result = await csv.Import(church.Id, [badGroup, childNoGuardian, good], default);
@@ -119,7 +139,7 @@ public sealed class MemberCsvServiceTests
         await directory.Save(new CustomField { Name = "Notes", FieldType = "text" }, church.Id);
         await directory.Save(new CustomField { Name = "Notes", FieldType = "number" }, church.Id);
 
-        var row = new MemberImportRow(null, "adult", "Ada", null, "Lovelace", null, null, null, null, null, null,
+        var row = new MemberImportRow(null, "adult", "Ada", null, "Lovelace", null, null, null, null, null, null, null,
             null, null, null, null, null, null, null, null, null, null, null, null, null, null,
             new() { ["Notes"] = "VIP" });
         var result = await csv.Import(church.Id, [row], default);
@@ -134,7 +154,7 @@ public sealed class MemberCsvServiceTests
         var (_, directory, csv) = Setup();
         var church = await directory.Save(new Church { Name = "TooMany" }, null);
         var rows = Enumerable.Range(0, MemberCsvService.MaxImportRows + 1)
-            .Select(_ => new MemberImportRow(null, "adult", "Ada", null, "Lovelace", null, null, null, null, null, null,
+            .Select(_ => new MemberImportRow(null, "adult", "Ada", null, "Lovelace", null, null, null, null, null, null, null,
                 null, null, null, null, null, null, null, null, null, null, null, null, null, null, null))
             .ToArray();
 

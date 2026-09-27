@@ -38,6 +38,9 @@ internal static class RepositoryContract
                 Assert.Equal(400, (await Assert.ThrowsAsync<ApiException>(() => members.Search(query with { ChurchId = otherChurch, ContinuationToken = token }))).Status);
         } while (token is not null);
         Assert.Equal(new[] { "member_b", "member_a" }, ids);
+        // GroupIds (plural, union) must filter correctly even when GroupId (singular) is not set.
+        var groupIdsOnly = await members.Search(new Query { ChurchId = church, GroupIds = ["group"] });
+        Assert.Equal(new HashSet<string> { "member_a", "member_b" }, groupIdsOnly.Items.Select(item => item.Id).ToHashSet());
         updated = await members.Replace(updated with { ScanCode = "contract-old", ScanCodeFormat = "qr" }, updated.ETag);
         Assert.Equal(updated.Id, (await members.ResolveScanCode(church, "CONTRACT-old"))!.Id);
         Assert.Null(await members.ResolveScanCode(otherChurch, "CONTRACT-old"));

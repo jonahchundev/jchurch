@@ -44,6 +44,7 @@ public sealed record Member : Document
     public bool ScanCodeFormatSpecified { get; init; }
     public string FirstName { get; init; } = "";
     public string LastName { get; init; } = "";
+    public string? Gender { get; init; }
     public string? MiddleName { get; init; }
     public DateOnly? BirthDate { get; init; }
     public string? School { get; init; }
