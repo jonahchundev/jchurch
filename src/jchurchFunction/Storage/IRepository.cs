@@ -21,10 +21,13 @@ public sealed record Query
     public DateTimeOffset? To { get; init; }
     public int PageSize { get; init; } = 50;
     public string? ContinuationToken { get; init; }
+    public string NameSort { get; init; } = "asc";
+    public string? CreatedOnSort { get; init; }
 
     public void Validate()
     {
-        if (PageSize is < 1 or > 200 || Search?.Length > 100 || GroupIds.Length > 50 || ContinuationToken?.Length > 32000 || From > To)
+        if (PageSize is < 1 or > 200 || Search?.Length > 100 || GroupIds.Length > 50 || ContinuationToken?.Length > 32000 || From > To ||
+            NameSort is not ("asc" or "desc") || CreatedOnSort is not (null or "newest" or "oldest"))
             throw new ApiException(400, "invalid_query", "Invalid page size, search, continuation token, or date range.");
     }
 

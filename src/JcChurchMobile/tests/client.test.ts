@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
+import { DateTime } from "luxon";
 import {
   getWebProxyTarget,
   proxyRequestPath,
   selectApiBaseUrl,
 } from "../src/api/api-url";
 import { ApiError, createApi, queryString } from "../src/api/client";
-import { attendanceRange, describeRecurrence, localToUtc, memberInput, memberSchema, normalizeScanCode, publicMemberInput, publicRegistrationSchema, timeZoneLabel } from "../src/domain";
+import { attendanceRange, churchSchema, createdOnLabel, describeRecurrence, isNewMember, localToUtc, memberInput, memberSchema, normalizeScanCode, publicMemberInput, publicRegistrationSchema, timeZoneLabel } from "../src/domain";
 import { splitGroupImportRow, splitImportRow } from "../src/csvSchema";
 
 describe("API contracts", () => {
@@ -405,5 +406,18 @@ describe("dates and validation", () => {
     expect(timeZoneLabel("America/Chicago")).toBe("Central Time");
     expect(timeZoneLabel("UTC")).toBe("UTC");
     expect(timeZoneLabel("Europe/London")).toBe("Europe/London");
+  });
+  it("validates the church new-member window and its rolling UTC boundary", () => {
+    const churchInput = { name: "Church", newMemberDays: "6", scanCodesEnabled: true, scanCodeFormat: "qr" };
+    expect(churchSchema.safeParse(churchInput).success).toBe(true);
+    expect(churchSchema.safeParse({ ...churchInput, newMemberDays: "0" }).success).toBe(true);
+    expect(churchSchema.safeParse({ ...churchInput, newMemberDays: "3651" }).success).toBe(false);
+    const now = DateTime.fromISO("2026-09-26T10:00:00Z", { setZone: true });
+    expect(isNewMember("2026-09-20T10:00:00Z", 6, now)).toBe(true);
+    expect(isNewMember("2026-09-20T09:59:59Z", 6, now)).toBe(false);
+    expect(isNewMember("2026-09-27T10:00:00Z", 6, now)).toBe(false);
+    expect(isNewMember("2026-09-26T09:00:00Z", 0, now)).toBe(false);
+    expect(isNewMember(null, 6, now)).toBe(false);
+    expect(createdOnLabel(null)).toBe("Registration date unavailable");
   });
 });

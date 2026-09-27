@@ -16,19 +16,35 @@ async function api(path, method = 'GET', body, expected = 200, etag) {
 }
 
 assert.equal((await api('/health')).status, 'ok');
-const church = await api('/churches', 'POST', { name: 'Synthetic smoke church' }, 201);
+let church = await api('/churches', 'POST', { name: 'Synthetic smoke church' }, 201);
+assert.equal(church.newMemberDays, 6);
+assert.ok(church.createdOn);
+assert.equal(church.createdOn, church.updatedOn);
+await api('/churches', 'POST', { name: 'Forged timestamps', createdOn: '2000-01-01T00:00:00Z', updatedOn: '2000-01-01T00:00:00Z' }, 400);
+church = await api(`/churches/${church.id}`, 'PUT', { name: church.name, newMemberDays: 0 }, 200, church._etag);
+assert.equal(church.newMemberDays, 0);
+church = await api(`/churches/${church.id}`, 'PUT', { name: church.name }, 200, church._etag);
+assert.equal(church.newMemberDays, 0);
 const other = await api('/churches', 'POST', { name: 'Synthetic second church' }, 201);
 const root = `/churches/${church.id}`;
 const group = await api(`${root}/groups`, 'POST', { name: 'Adults' }, 201);
 const subgroup = await api(`${root}/groups`, 'POST', { name: 'Class', parentGroupId: group.id }, 201);
 await api(`${root}/groups`, 'POST', { name: 'Invalid depth', parentGroupId: subgroup.id }, 400);
 const field = await api(`${root}/custom-fields`, 'POST', { name: 'Volunteer', fieldType: 'boolean' }, 201);
-const memberInput = { firstName: 'Synthetic', lastName: 'Member', groupIds: [group.id, subgroup.id], customFields: { [field.id]: true } };
+const memberInput = { memberType: 'adult', firstName: 'Synthetic', lastName: 'Member', groupIds: [group.id, subgroup.id], customFields: { [field.id]: true } };
 const member = await api(`${root}/members`, 'POST', memberInput, 201);
+assert.ok(member.createdOn);
+assert.equal(member.createdOn, member.updatedOn);
+await api(`${root}/members`, 'POST', { ...memberInput, createdOn: '2000-01-01T00:00:00Z' }, 400);
 await api(`${root}/members`, 'POST', { ...memberInput, customFields: { [field.id]: 'wrong type' } }, 400);
 await api(`/churches/${other.id}/members`, 'POST', memberInput, 404);
+assert.equal((await api(`${root}/members?nameSort=desc&createdOnSort=newest&pageSize=1`)).items[0].id, member.id);
+await api(`${root}/members?createdOnSort=invalid`, 'GET', undefined, 400);
+await api(`${root}/groups?nameSort=asc`, 'GET', undefined, 400);
 await api(`${root}/members/${member.id}`, 'PUT', memberInput, 428);
-const updated = await api(`${root}/members/${member.id}`, 'PUT', { ...memberInput, school: 'Synthetic School' }, 200, member._etag);
+const updated = await api(`${root}/members/${member.id}`, 'PUT', { ...memberInput, allergyDetail: 'Synthetic update' }, 200, member._etag);
+assert.equal(updated.createdOn, member.createdOn);
+assert.ok(Date.parse(updated.updatedOn) >= Date.parse(member.updatedOn));
 await api(`${root}/members/${member.id}`, 'PUT', memberInput, 412, member._etag);
 assert.notEqual(updated._etag, member._etag);
 
@@ -69,7 +85,7 @@ await api(`${root}/groups/${subgroup.id}`, 'DELETE', undefined, 204, subgroup._e
 await api(`${root}/groups/${group.id}`, 'DELETE', undefined, 204, group._etag);
 assert.equal((await api(`${root}/attendance?groupId=${group.id}&includeSubgroups=true`)).items.length, 1);
 assert.equal((await api('/openapi.json')).openapi, '3.0.3');
-const scanInput = { firstName: 'Synthetic', lastName: 'Scanner', scanCode: '0000-scan-original', scanCodeFormat: 'qr' };
+const scanInput = { memberType: 'adult', firstName: 'Synthetic', lastName: 'Scanner', scanCode: '0000-scan-original', scanCodeFormat: 'qr' };
 let scanMember = await api(`${root}/members`, 'POST', scanInput, 201);
 assert.equal(scanMember.scanCode, '0000-SCAN-ORIGINAL');
 assert.equal((await api(`${root}/members`)).items.find(item => item.id === scanMember.id).scanCode, null);
@@ -84,7 +100,7 @@ assert.equal(firstScan.member.id, scanMember.id);
 assert.equal((await api(scanPath, 'POST', { scanCode: scanInput.scanCode })).already, true);
 assert.equal((await api(`${scanPath}/status`, 'POST', { scanCode: scanInput.scanCode })).checkedIn, true);
 assert.equal((await api(`${root}/occurrences/${futureOccurrence.id}/check-ins`, 'POST', { memberId: scanMember.id })).id, firstScan.receipt.id);
-scanMember = await api(`${root}/members/${scanMember.id}`, 'PUT', { firstName: 'Legacy', lastName: 'Edit' }, 200, scanMember._etag);
+scanMember = await api(`${root}/members/${scanMember.id}`, 'PUT', { memberType: 'adult', firstName: 'Legacy', lastName: 'Edit' }, 200, scanMember._etag);
 assert.equal(scanMember.scanCode, '0000-SCAN-ORIGINAL');
 const staleTag = scanMember._etag;
 scanMember = await api(`${root}/members/${scanMember.id}`, 'PUT', { ...scanInput, scanCode: '0000-scan-replaced', scanCodeFormat: 'code128' }, 200, scanMember._etag);

@@ -6,6 +6,7 @@ export const nameSchema = z.object({
   name: z.string().trim().min(1, "Name is required.").max(200),
 });
 export const churchSchema = nameSchema.extend({
+  newMemberDays: z.string().regex(/^\d+$/).refine(value => Number(value) <= 3650, "Use a value from 0 to 3650 days."),
   scanCodesEnabled: z.boolean(),
   scanCodeFormat: z.enum(["qr", "code128"]),
 });
@@ -62,6 +63,18 @@ export function timeZoneLabel(timeZone: string) {
     / \([^)]*\)$/,
     "",
   ) ?? timeZone;
+}
+export function isNewMember(createdOn: string | null | undefined, days: number | undefined, now: DateTime = DateTime.utc()) {
+  if (!createdOn || !days || days < 0) return false;
+  const created = DateTime.fromISO(createdOn, { setZone: true }).toUTC();
+  return created.isValid && created <= now && created >= now.minus({ days });
+}
+export function createdOnLabel(createdOn: string | null | undefined) {
+  if (!createdOn) return "Registration date unavailable";
+  const created = DateTime.fromISO(createdOn, { setZone: true });
+  return created.isValid
+    ? `Registered ${created.toLocal().toLocaleString(DateTime.DATE_MED)}`
+    : "Registration date unavailable";
 }
 export function describeRecurrence(rule: string | null | undefined) {
   if (!rule) return "One-time";

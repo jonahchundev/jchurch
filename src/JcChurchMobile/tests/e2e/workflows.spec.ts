@@ -553,6 +553,7 @@ test("closing a session editor returns to active check-in", async ({ page }) => 
     `/church/${alpha.id}/check-in?eventId=${sampleEvent.id}&occurrenceId=${sampleSession.id}`,
   );
   await page.getByRole("button", { name: "Begin check-in", exact: true }).click();
+  await expect(page.getByText("UTC", { exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Edit session", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Session details", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Close", exact: true }).click();
@@ -941,4 +942,40 @@ test("church settings, members, sessions and duplicate-safe check-in", async ({
       }
     }
   }
+});
+
+test("member sort sheet updates server filters and shows creation metadata", async ({ page }) => {
+  const church = { ...alpha, newMemberDays: 6 };
+  const createdOn = new Date().toISOString();
+  const newMember = { ...jordan, createdOn, updatedOn: createdOn };
+  const memberQueries: URL[] = [];
+  await page.route("**/api/v1/**", async route => {
+    const url = new URL(route.request().url());
+    const path = url.pathname.replace("/api/v1", "");
+    let body: unknown = pageBody([]);
+    if (path === "/churches") body = pageBody([church]);
+    else if (path === `/churches/${church.id}`) body = church;
+    else if (path === `/churches/${church.id}/members`) {
+      memberQueries.push(url);
+      body = pageBody([newMember]);
+    } else if (path === `/churches/${church.id}/members/${newMember.id}`) body = newMember;
+    await route.fulfill({ json: body });
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: /Alpha Community/ }).click();
+  await page.getByRole("tab", { name: "Members", exact: true }).click();
+  await expect(page.getByLabel("Newly registered")).toBeVisible();
+  await expect.poll(() => memberQueries.some(url => url.searchParams.get("nameSort") === "asc")).toBe(true);
+
+  await page.getByRole("button", { name: "Sort members", exact: true }).click();
+  await page.getByRole("button", { name: "Name order: Z-A", exact: true }).click();
+  await page.getByRole("button", { name: "Created date: Newest", exact: true }).click();
+  await expect.poll(() => memberQueries.some(url =>
+    url.searchParams.get("nameSort") === "desc" && url.searchParams.get("createdOnSort") === "newest",
+  )).toBe(true);
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+
+  await page.getByRole("button", { name: /Jordan Example/ }).click();
+  await expect(page.getByText(/^Registered /)).toBeVisible();
 });

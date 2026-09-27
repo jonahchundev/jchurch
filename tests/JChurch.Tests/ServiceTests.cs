@@ -14,6 +14,22 @@ public sealed class TestClock(DateTimeOffset now) : TimeProvider
 public sealed class ServiceTests
 {
     [Fact]
+    public async Task ChurchNewMemberWindowDefaultsToSixDaysAndValidatesRange()
+    {
+        var clock = new TestClock(DateTimeOffset.Parse("2026-09-26T10:00:00Z"));
+        var directory = new DirectoryService(Memory(), clock);
+        var church = await directory.Save(new Church { Name = "Window" }, null);
+        Assert.Equal(6, church.NewMemberDays);
+
+        var disabled = await directory.Save(church with { NewMemberDays = 0 }, church.Id, church.Id, church.ETag);
+        Assert.Equal(0, disabled.NewMemberDays);
+        var maximum = await directory.Save(disabled with { NewMemberDays = 3650 }, disabled.Id, disabled.Id, disabled.ETag);
+        Assert.Equal(3650, maximum.NewMemberDays);
+        await Assert.ThrowsAsync<ApiException>(() => directory.Save(maximum with { NewMemberDays = -1 }, maximum.Id, maximum.Id, maximum.ETag));
+        await Assert.ThrowsAsync<ApiException>(() => directory.Save(maximum with { NewMemberDays = 3651 }, maximum.Id, maximum.Id, maximum.ETag));
+    }
+
+    [Fact]
     public async Task EventGroupsInheritToOccurrencesAndCanBeClearedPerOccurrence()
     {
         var repositories = Memory();

@@ -542,6 +542,16 @@ export interface components {
             readonly churchId: string;
             readonly kind: string;
             readonly _etag: string;
+            /**
+             * Format: date-time
+             * @description Server-managed creation timestamp. Null for legacy documents without historical metadata.
+             */
+            readonly createdOn?: string | null;
+            /**
+             * Format: date-time
+             * @description Server-managed last modification timestamp.
+             */
+            readonly updatedOn?: string | null;
             readonly active: boolean;
             readonly searchText?: string;
         } & {
@@ -549,6 +559,11 @@ export interface components {
         };
         ChurchInput: {
             name: string;
+            /**
+             * @description Days after creation to show the new-member indicator; zero disables it.
+             * @default 6
+             */
+            newMemberDays: number;
             /**
              * @description Whether member card and scan check-in functionality is available.
              * @default true
@@ -790,6 +805,10 @@ export interface components {
         IfMatch: string;
         /** @description Case-insensitive name substring. */
         search: string;
+        /** @description Name order and tie-break direction; defaults to ascending. */
+        nameSort: "asc" | "desc";
+        /** @description Optional primary creation-date order. Unknown legacy dates are returned last; name order breaks ties. */
+        createdOnSort: "newest" | "oldest";
         pageSize: number;
         /** @description Opaque, URL-encoded token bound to the same filters and page size. Continue until null, including after empty Cosmos pages. */
         continuationToken: string;
@@ -1176,6 +1195,10 @@ export interface operations {
                 /** @description Opaque, URL-encoded token bound to the same filters and page size. Continue until null, including after empty Cosmos pages. */
                 continuationToken?: components["parameters"]["continuationToken"];
                 includeArchived?: components["parameters"]["includeArchived"];
+                /** @description Name order and tie-break direction; defaults to ascending. */
+                nameSort?: components["parameters"]["nameSort"];
+                /** @description Optional primary creation-date order. Unknown legacy dates are returned last; name order breaks ties. */
+                createdOnSort?: components["parameters"]["createdOnSort"];
             };
             header?: never;
             path: {
