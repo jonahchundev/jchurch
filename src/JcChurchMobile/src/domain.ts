@@ -184,6 +184,48 @@ export function publicMemberInput(values: PublicRegistrationFormValues): MemberI
   };
 }
 
+function publicGuardianDefaults(guardian: MemberInput["guardian1"]): PublicRegistrationFormValues["guardian1"] {
+  if (!guardian) return undefined;
+  return {
+    firstName: guardian.firstName ?? "",
+    middleName: guardian.middleName ?? "",
+    lastName: guardian.lastName ?? "",
+    relationship: guardian.relationship ?? "Mother",
+    otherRelationship: guardian.otherRelationship ?? "",
+    phone: guardian.phone ?? "",
+    email: guardian.email ?? "",
+  };
+}
+
+// Shared by the blank registration form and the update form prefilled from a fetched member.
+export function publicRegistrationDefaults(member?: {
+  memberType?: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  middleName?: string | null;
+  birthDate?: string | null;
+  school?: string | null;
+  allergyDetail?: string | null;
+  guardian1?: MemberInput["guardian1"];
+  guardian2?: MemberInput["guardian2"];
+}): PublicRegistrationFormValues {
+  return {
+    memberType: member?.memberType === "adult" ? "adult" : "child",
+    allergyDetail: member?.allergyDetail ?? "",
+    firstName: member?.firstName ?? "",
+    lastName: member?.lastName ?? "",
+    middleName: member?.middleName ?? "",
+    school: member?.school ?? "",
+    birthDate: member?.birthDate ?? "",
+    guardian1:
+      publicGuardianDefaults(member?.guardian1) ??
+      (member?.memberType === "adult"
+        ? undefined
+        : { firstName: "", middleName: "", lastName: "", relationship: "Mother", otherRelationship: "", phone: "", email: "" }),
+    guardian2: publicGuardianDefaults(member?.guardian2),
+  };
+}
+
 export function memberInput(
   values: MemberFormValues,
   definitions: CustomField[],

@@ -5,7 +5,7 @@ import {
   selectApiBaseUrl,
 } from "../src/api/api-url";
 import { ApiError, createApi, queryString } from "../src/api/client";
-import { attendanceRange, describeRecurrence, localToUtc, memberInput, memberSchema, normalizeScanCode, publicMemberInput, publicRegistrationSchema, timeZoneLabel } from "../src/domain";
+import { attendanceRange, describeRecurrence, localToUtc, memberInput, memberSchema, normalizeScanCode, publicMemberInput, publicRegistrationDefaults, publicRegistrationSchema, timeZoneLabel } from "../src/domain";
 import { splitGroupImportRow, splitImportRow } from "../src/csvSchema";
 
 describe("API contracts", () => {
@@ -375,6 +375,52 @@ describe("dates and validation", () => {
         },
       }).success,
     ).toBe(false);
+  });
+  it("prefills public registration defaults from a fetched member for the update form", () => {
+    const childMember = {
+      memberType: "child",
+      firstName: "Child",
+      lastName: "Test",
+      middleName: null,
+      birthDate: "2018-05-01",
+      school: "Elm Street",
+      allergyDetail: "Peanuts",
+      guardian1: {
+        firstName: "Maria",
+        middleName: null,
+        lastName: "Test",
+        relationship: "Mother" as const,
+        otherRelationship: null,
+        phone: "555-0100",
+        email: "maria@example.com",
+      },
+    };
+    const childDefaults = publicRegistrationDefaults(childMember);
+    expect(childDefaults.memberType).toBe("child");
+    expect(childDefaults.school).toBe("Elm Street");
+    expect(childDefaults.guardian1?.firstName).toBe("Maria");
+    expect(childDefaults.guardian2).toBeUndefined();
+
+    const adultMember = {
+      memberType: "adult",
+      firstName: "Adult",
+      lastName: "Member",
+    };
+    const adultDefaults = publicRegistrationDefaults(adultMember);
+    expect(adultDefaults.memberType).toBe("adult");
+    expect(adultDefaults.guardian1).toBeUndefined();
+
+    const blankDefaults = publicRegistrationDefaults();
+    expect(blankDefaults.memberType).toBe("child");
+    expect(blankDefaults.guardian1).toEqual({
+      firstName: "",
+      middleName: "",
+      lastName: "",
+      relationship: "Mother",
+      otherRelationship: "",
+      phone: "",
+      email: "",
+    });
   });
   it("converts an event wall time in its timezone", () => {
     expect(localToUtc("2026-09-20T09:00", "America/New_York")).toBe(

@@ -47,6 +47,52 @@ const pageBody = (
   continuationToken: string | null = null,
 ) => ({ items, continuationToken });
 
+test("public member update navigates to a separate confirmation page", async ({ page }) => {
+  let saved = {
+    ...jordan,
+    memberType: "adult",
+    middleName: null,
+    birthDate: null,
+    school: null,
+    allergyDetail: null,
+    guardian1: null,
+    guardian2: null,
+  };
+  let updates = 0;
+  await page.route("**/api/v1/**", async route => {
+    const url = new URL(route.request().url());
+    const path = url.pathname.replace("/api/v1", "");
+    const method = route.request().method();
+    if (path === `/churches/${alpha.id}`) {
+      await route.fulfill({ json: alpha });
+      return;
+    }
+    if (path === `/churches/${alpha.id}/members/${jordan.id}`) {
+      if (method === "PUT") {
+        updates++;
+        saved = {
+          ...saved,
+          ...route.request().postDataJSON(),
+          _etag: '"updated"',
+        };
+      }
+      await route.fulfill({ json: saved });
+      return;
+    }
+    await route.fulfill({ status: 404, json: { detail: "Not found." } });
+  });
+
+  await page.goto(`/update/${alpha.id}/${jordan.id}`);
+  await expect(page.getByRole("heading", { name: "Update your information" })).toBeVisible();
+  await page.getByRole("textbox", { name: "First name (required)" }).fill("Jordan Updated");
+  await page.getByRole("button", { name: "Save updates" }).click();
+
+  await expect(page).toHaveURL(`/update/${alpha.id}/${jordan.id}/confirmation`);
+  await expect(page.getByRole("heading", { name: "Thank you!" })).toBeVisible();
+  await expect(page.getByText("Your information has been updated.", { exact: false })).toBeVisible();
+  expect(updates).toBe(1);
+});
+
 test("settings manage groups creates subgroups and feeds member assignment labels", async ({ page }, testInfo) => {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
