@@ -64,13 +64,13 @@ export function timeZoneLabel(timeZone: string) {
     "",
   ) ?? timeZone;
 }
-export function isNewMember(createdOn: string | null | undefined, days: number | undefined, now: DateTime = DateTime.utc()) {
-  if (!createdOn || !days || days < 0) return false;
+export function isNewMember(createdOn: unknown, days: unknown, now: DateTime = DateTime.utc()) {
+  if (typeof createdOn !== "string" || !createdOn || typeof days !== "number" || !Number.isFinite(days) || days <= 0) return false;
   const created = DateTime.fromISO(createdOn, { setZone: true }).toUTC();
   return created.isValid && created <= now && created >= now.minus({ days });
 }
-export function createdOnLabel(createdOn: string | null | undefined) {
-  if (!createdOn) return "Registration date unavailable";
+export function createdOnLabel(createdOn: unknown) {
+  if (typeof createdOn !== "string" || !createdOn) return "Registration date unavailable";
   const created = DateTime.fromISO(createdOn, { setZone: true });
   return created.isValid
     ? `Registered ${created.toLocal().toLocaleString(DateTime.DATE_MED)}`

@@ -370,6 +370,7 @@ function MemberEditor({
   const [scanning, setScanning] = useState(false);
   const [guardian2Enabled, setGuardian2Enabled] = useState(!!member?.guardian2);
   const [replacement, setReplacement] = useState<MemberFormValues | null>(null);
+  const [updateLinkOpen, setUpdateLinkOpen] = useState(false);
   const church = useQuery({
     queryKey: [churchPath(churchId)],
     queryFn: ({ signal }) => api.get<Church>(churchPath(churchId), signal),
@@ -447,6 +448,15 @@ function MemberEditor({
             onPress={() => setEditing(true)}
           >
             Edit member
+          </Button>
+        )}
+        {current && (
+          <Button
+            secondary
+            icon="qr-code-outline"
+            onPress={() => setUpdateLinkOpen(true)}
+          >
+            Update link
           </Button>
         )}
         {!current?.active && current && (
@@ -775,6 +785,14 @@ function MemberEditor({
           </>
         )}
       </View>
+      {updateLinkOpen && current && (
+        <RegistrationCode
+          title="Update details"
+          subtitle={memberName(current)}
+          url={`${registrationBaseUrl()}/update/${churchId}/${current.id}`}
+          onClose={() => setUpdateLinkOpen(false)}
+        />
+      )}
     </Sheet>
   );
 }
