@@ -63,6 +63,7 @@ export default function Members() {
   const query = useList<Member>(path, {
     search: useDebounce(search),
     groupId: groupId || undefined,
+    pageSize: 200,
   });
   const groups = useAll<Group>(churchPath(churchId, "groups"), {
     includeArchived: true,

@@ -274,6 +274,7 @@ function ActiveCheckIn({
   const query = useList<Member>(churchPath(event.churchId, "members"), {
     search: useDebounce(search),
     groupIds: occurrence.groupIds?.join(",") ?? "",
+    pageSize: 200,
   });
   const groups = useAll<Group>(churchPath(event.churchId, "groups"), {
     includeArchived: true,
