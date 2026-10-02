@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -287,6 +287,16 @@ function ActiveCheckIn({
   const groups = useAll<Group>(churchPath(event.churchId, "groups"), {
     includeArchived: true,
   });
+  const attendance = useAll<Attendance>(churchPath(event.churchId, "attendance"), {
+    occurrenceId: occurrence.id,
+  });
+  const checkedInByMember = useMemo(
+    () =>
+      new Map(
+        (attendance.data ?? []).map((receipt) => [receipt.memberId, receipt]),
+      ),
+    [attendance.data],
+  );
   const members = query.data?.pages.flatMap((page) => page.items) ?? [];
   const checkIn = useMutation({
     mutationFn: (memberId: string) =>
@@ -312,7 +322,19 @@ function ActiveCheckIn({
         setRetryAt(Date.now() + error.retryAfter * 1000);
     },
   });
-  const blocked = checkIn.isPending || now < retryAt;
+  const blocked = checkIn.isPending || attendance.isPending || now < retryAt;
+  function refreshCheckIn() {
+    void attendance.refetch();
+    void query.refetch();
+    void client.invalidateQueries({
+      queryKey: [churchPath(event.churchId, `events/${event.id}/occurrence-check-in-counts`)],
+    });
+    setReceipts((previous) =>
+      Object.fromEntries(
+        Object.entries(previous).filter(([, state]) => state.receipt),
+      ),
+    );
+  }
   return (
     <View style={{ flex: 1 }}>
       <View
@@ -333,6 +355,7 @@ function ActiveCheckIn({
           <Label small>{sessionTime(occurrence.startsAt, event.timeZone)}</Label>
           <Label small muted>{occurrence.groupIds?.length ? `Groups: ${occurrence.groupIds.map(id => groups.data?.find(group => group.id === id)?.name ?? id).join(", ")}` : "Groups: All members"}</Label>
         </View>
+        <IconButton icon="refresh-outline" label="Refresh status" disabled={attendance.isRefetching || checkIn.isPending || scanLocked} onPress={refreshCheckIn} />
         <IconButton icon="swap-horizontal-outline" label="Change session" disabled={checkIn.isPending || scanLocked} onPress={onChange} />
         <IconButton icon="create-outline" label="Edit session" disabled={checkIn.isPending || scanLocked} onPress={() => router.navigate({ pathname: "/church/[churchId]/events", params: { churchId: event.churchId, eventId: event.id, occurrenceId: occurrence.id, returnTo: "check-in" } })} />
         <IconButton icon="qr-code-outline" label="New registration" disabled={checkIn.isPending || scanLocked} onPress={() => setRegistrationOpen(true)} />
@@ -388,6 +411,7 @@ function ActiveCheckIn({
             <View>
               {members.map((member) => {
                 const state = receipts[member.id];
+                const receipt = state?.receipt ?? checkedInByMember.get(member.id);
                 const details = [
                   memberAge(member.birthDate) === null
                     ? ""
@@ -396,8 +420,8 @@ function ActiveCheckIn({
                   groupNames(member, groups.data ?? []),
                 ].filter(Boolean).join(" · ");
                 const incomplete = guardianIncomplete(member);
-                const checkedInBadge = state?.receipt
-                  ? `${state.already ? "Already checked in" : "Checked in"} · ${DateTime.fromISO(state.receipt.checkedInAt).setZone(event.timeZone).toFormat("LLL d, h:mm a")}`
+                const checkedInBadge = receipt
+                  ? `${state?.receipt && state.already ? "Already checked in" : "Checked in"} · ${DateTime.fromISO(receipt.checkedInAt).setZone(event.timeZone).toFormat("LLL d, h:mm a")}`
                   : undefined;
                 const badge = [
                   incomplete ? "Guardian info incomplete" : "",
@@ -413,7 +437,7 @@ function ActiveCheckIn({
                       badgeTone={incomplete ? "danger" : "default"}
                       icon="person-outline"
                       trailing={
-                        !state?.receipt ? (
+                        !receipt ? (
                           <Button
                             icon="checkmark-outline"
                             busy={checkIn.isPending && checkIn.variables === member.id}
