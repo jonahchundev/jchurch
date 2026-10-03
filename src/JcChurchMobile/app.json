@@ -12,14 +12,25 @@
       "expo-status-bar",
       "expo-font",
       "expo-splash-screen",
-      ["expo-camera", { "cameraPermission": "Allow JChurch to scan member QR codes and barcodes.", "recordAudioAndroid": false, "microphonePermission": false }],
-      "expo-sharing"
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow JChurch to scan member QR codes and barcodes.",
+          "recordAudioAndroid": false,
+          "microphonePermission": false
+        }
+      ],
+      "expo-sharing",
+      "expo-web-browser",
+      "expo-secure-store"
     ],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.jchurch.mobile"
     },
     "android": {
-      "predictiveBackGestureEnabled": true
+      "predictiveBackGestureEnabled": true,
+      "package": "com.jchurch.mobile"
     },
     "web": {
       "bundler": "metro",

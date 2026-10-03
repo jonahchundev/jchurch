@@ -29,7 +29,7 @@ import {
 const lastKey = "jchurch:last-church-id";
 export default function Churches({ manage = false }: { manage?: boolean }) {
   const router = useRouter();
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
   const { selected } = useLocalSearchParams<{ selected?: string }>();
   const client = useQueryClient();
   const [search, setSearch] = useState("");
@@ -93,6 +93,13 @@ export default function Churches({ manage = false }: { manage?: boolean }) {
         onChange={setSearch}
         placeholder="Search churches"
       />
+      {manage && user && (
+        <Row
+          title={user.name ?? user.email ?? (user.provider === "google" ? "Google account" : "Admin")}
+          subtitle={user.name && user.email ? user.email : user.provider === "google" ? "Signed in with Google" : "Temporary admin login"}
+          icon={user.provider === "google" ? "logo-google" : "person-outline"}
+        />
+      )}
       {manage && selected && (
         <Row
           title="Manage custom fields"

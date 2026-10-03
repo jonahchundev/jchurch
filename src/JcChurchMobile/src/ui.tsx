@@ -878,6 +878,13 @@ export const styles = StyleSheet.create({
     lineHeight: 24,
     color: colors.ink,
   },
+  dividerLabel: {
+    fontFamily: "Manrope_600SemiBold",
+    fontSize: 13,
+    color: colors.muted,
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
   muted: { color: colors.muted },
   small: { fontSize: 13, lineHeight: 20 },
   actions: {
