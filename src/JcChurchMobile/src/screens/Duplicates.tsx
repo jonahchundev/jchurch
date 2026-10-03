@@ -7,8 +7,6 @@ import { message } from "../api/client";
 import type { Group, Member } from "../api/types";
 import { createdOnLabel, memberAge } from "../domain";
 import { findDuplicateCandidates, matchReasonText, type CandidatePair } from "../duplicates";
-import { canManageUsers } from "../auth/roles";
-import { useRole } from "../auth/RoleContext";
 import { groupNames, memberName } from "./Members";
 import {
   Avatar,
@@ -34,7 +32,6 @@ type MergeResult = { kept: string; archived: string; checkInsMoved: number; chec
 export default function Duplicates() {
   const { churchId } = useLocalSearchParams<{ churchId: string }>();
   const router = useRouter();
-  const { roleReady, roleInfo } = useRole();
   const membersPath = churchPath(churchId, "members");
   const members = useAll<Member>(membersPath);
   const groups = useAll<Group>(churchPath(churchId, "groups"), { includeArchived: true });
@@ -64,16 +61,6 @@ export default function Duplicates() {
     });
     return pairs;
   }, [candidates, debounced, groupIds, nameSort]);
-
-  if (roleReady && !canManageUsers(roleInfo))
-    return (
-      <Page title="Duplicate members" eyebrow="Members">
-        <View style={styles.stack}>
-          <Notice error>Only church administrators can clean up duplicate members.</Notice>
-          <Button secondary onPress={() => router.back()}>Go back</Button>
-        </View>
-      </Page>
-    );
 
   return (
     <Page

@@ -8,8 +8,6 @@ import { api, churchPath, memberImageUrl, useAll, useDebounce, useList } from ".
 import { ApiError, message } from "../api/client";
 import type { Church, CustomField, Group, Member } from "../api/types";
 import { createdOnLabel, guardianIncomplete, isNewMember, memberAge, memberInput, memberSchema, normalizeScanCode, type MemberFormValues } from "../domain";
-import { canManageUsers } from "../auth/roles";
-import { useRole } from "../auth/RoleContext";
 import { generateScanCode, ScanCard, ScanInput } from "../ScanCode";
 import { registrationBaseUrl } from "../api/api-url";
 import { RegistrationCode } from "../RegistrationCode";
@@ -62,7 +60,6 @@ export default function Members() {
   }>();
   const client = useQueryClient();
   const router = useRouter();
-  const { roleReady, roleInfo } = useRole();
   const [search, setSearch] = useState("");
   const [groupIds, setGroupIds] = useState<string[]>([]);
   const [nameSort, setNameSort] = useState("asc");
@@ -100,13 +97,11 @@ export default function Members() {
       refreshing={query.isRefetching}
       actions={
         <>
-          {roleReady && canManageUsers(roleInfo) && (
-            <IconButton
-              icon="copy-outline"
-              label="Clean up duplicate members"
-              onPress={() => router.push(`/church/${churchId}/duplicates`)}
-            />
-          )}
+          <IconButton
+            icon="copy-outline"
+            label="Clean up duplicate members"
+            onPress={() => router.push(`/church/${churchId}/duplicates`)}
+          />
           <IconButton
             icon="cloud-download-outline"
             label="Import or export CSV"
