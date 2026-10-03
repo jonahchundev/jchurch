@@ -36,6 +36,7 @@ import {
 } from "../ui";
 import { SessionList } from "./Events";
 import { groupNames, memberName } from "./Members";
+import { AttendanceRoster } from "../reports/AttendanceRoster";
 import ScanCheckIn from "./ScanCheckIn";
 
 export default function CheckIn() {
@@ -376,7 +377,7 @@ function ActiveCheckIn({
         {view === "scan" ? (
           <ScanCheckIn churchId={event.churchId} eventId={event.id} occurrenceId={occurrence.id} timeZone={event.timeZone} format={scanFormat} onLocked={setScanLocked} />
         ) : view === "attendance" ? (
-          <AttendanceList
+          <AttendanceRoster
             churchId={event.churchId}
             occurrenceId={occurrence.id}
             onUndo={(memberId) =>
@@ -524,134 +525,3 @@ function ActiveCheckIn({
   );
 }
 
-function AttendanceList({
-  churchId,
-  occurrenceId,
-  onUndo,
-}: {
-  churchId: string;
-  occurrenceId: string;
-  onUndo: (memberId: string) => void;
-}) {
-  const [search, setSearch] = useState("");
-  const query = useList<Attendance>(churchPath(churchId, "attendance"), {
-    occurrenceId,
-    search: useDebounce(search),
-  });
-  const receipts = query.data?.pages.flatMap((page) => page.items) ?? [];
-  return (
-    <View style={styles.stack}>
-      <SearchBox
-        value={search}
-        onChange={setSearch}
-        placeholder="Search checked-in members"
-      />
-      <View style={styles.actions}>
-        <Button
-          secondary
-          icon="refresh-outline"
-          busy={query.isRefetching}
-          onPress={() => void query.refetch()}
-        >
-          Refresh
-        </Button>
-      </View>
-      <QueryState
-        pending={query.isPending}
-        error={query.error}
-        empty={!receipts.length}
-        emptyText={search ? "No checked-in members found." : "No members checked in."}
-        onRetry={() => void query.refetch()}
-      />
-      <View>
-        {receipts.map((receipt) => (
-          <AttendanceRow key={receipt.id} receipt={receipt} onUndo={onUndo} />
-        ))}
-      </View>
-      {query.hasNextPage && (
-        <Button
-          secondary
-          busy={query.isFetchingNextPage}
-          onPress={() => void query.fetchNextPage()}
-        >
-          Load more check-ins
-        </Button>
-      )}
-    </View>
-  );
-}
-
-function AttendanceRow({
-  receipt,
-  onUndo,
-}: {
-  receipt: Attendance;
-  onUndo: (memberId: string) => void;
-}) {
-  const client = useQueryClient();
-  const [confirmUndo, setConfirmUndo] = useState(false);
-  const member = useQuery({
-    queryKey: [churchPath(receipt.churchId, `members/${receipt.memberId}`)],
-    queryFn: ({ signal }) =>
-      api.get<Member>(
-        churchPath(receipt.churchId, `members/${receipt.memberId}`),
-        signal,
-      ),
-  });
-  const undo = useMutation({
-    mutationFn: () => api.undoCheckIn(receipt.churchId, receipt.occurrenceId, receipt.memberId),
-    onSuccess: async () => {
-      onUndo(receipt.memberId);
-      await client.invalidateQueries({
-        queryKey: [churchPath(receipt.churchId, "attendance")],
-      });
-      await client.invalidateQueries({
-        queryKey: [churchPath(receipt.churchId, `events/${receipt.eventId}/occurrence-check-in-counts`)],
-      });
-    },
-  });
-  return (
-    <View style={{ paddingBottom: 8, gap: 8 }}>
-      <Row
-        avatar={
-          member.data ? (
-            <Avatar uri={memberImageUrl(receipt.churchId, receipt.memberId, member.data.imageVersion)} />
-          ) : undefined
-        }
-        title={
-          member.data
-            ? memberName(member.data)
-            : member.isPending
-              ? "Loading member..."
-              : "Member unavailable"
-        }
-        subtitle={DateTime.fromISO(receipt.checkedInAt).toLocal().toFormat("LLL d, yyyy · h:mm a")}
-        icon="checkmark-circle-outline"
-        trailing={
-          <Button
-            danger
-            busy={undo.isPending}
-            disabled={undo.isPending}
-            onPress={() => setConfirmUndo(true)}
-          >
-            Undo
-          </Button>
-        }
-      />
-      {confirmUndo && (
-        <>
-          <Notice error>Undo this check-in? The attendance record is retained in the audit history.</Notice>
-          {undo.error && <Notice error>{message(undo.error)}</Notice>}
-          <View style={styles.actions}>
-            <Button danger busy={undo.isPending} onPress={() => undo.mutate()}>
-              Confirm undo
-            </Button>
-            <Button secondary disabled={undo.isPending} onPress={() => setConfirmUndo(false)}>
-              Keep check-in
-            </Button>
-          </View>
-        </>
-      )}
-    </View>
-  );
-}

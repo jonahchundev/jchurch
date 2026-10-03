@@ -1,3 +1,4 @@
+using System.Globalization;
 using JChurch.Domain;
 using System.Text.Json;
 
@@ -158,6 +159,36 @@ public sealed class InMemoryRepository<T> : IRepository<T> where T : Document
                 .OrderBy(count => count.OccurrenceId, StringComparer.Ordinal)
                 .ToArray();
             return Task.FromResult<IReadOnlyList<OccurrenceCheckInCount>>(counts);
+        }
+    }
+
+    public Task<IReadOnlyList<AttendanceSummaryRow>> Summarize(Query query, string groupBy, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (typeof(T) != typeof(Attendance)) throw new NotSupportedException("Summaries require an attendance repository.");
+        if (groupBy is not ("event" or "occurrence" or "member" or "group" or "day"))
+            throw new ApiException(400, "invalid_query", "groupBy must be event, occurrence, member, group, or day.");
+        query.Validate();
+        lock (gate)
+        {
+            var receipts = documents.Values.OfType<Attendance>().Where(query.Matches);
+            IEnumerable<(string Key, Attendance Receipt)> flattened = groupBy switch
+            {
+                "event" => receipts.Select(receipt => (receipt.EventId, receipt)),
+                "occurrence" => receipts.Select(receipt => (receipt.OccurrenceId, receipt)),
+                "member" => receipts.Select(receipt => (receipt.MemberId, receipt)),
+                // UTC date prefix; matches the Cosmos SUBSTRING(checkedInAt, 0, 10) bucketing exactly.
+                "day" => receipts.Select(receipt => (receipt.CheckedInAt.UtcDateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), receipt)),
+                "group" => receipts.SelectMany(receipt => receipt.InclusiveGroupIds.Select(groupId => (groupId, receipt))),
+                _ => []
+            };
+            var rows = flattened
+                .GroupBy(pair => pair.Key, StringComparer.Ordinal)
+                .Select(group => new AttendanceSummaryRow(group.Key, group.Count(), group.Select(pair => pair.Receipt.MemberId).Distinct(StringComparer.Ordinal).Count()))
+                .OrderBy(row => row.Key, StringComparer.Ordinal)
+                .ToArray();
+            if (rows.Length > 10_000) throw new ApiException(400, "too_many_results", "Summary produced too many groups; narrow the filters.");
+            return Task.FromResult<IReadOnlyList<AttendanceSummaryRow>>(rows);
         }
     }
 

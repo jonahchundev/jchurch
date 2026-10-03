@@ -86,5 +86,30 @@ internal static class RepositoryContract
         Assert.True(archived.UpdatedOn >= inactive.UpdatedOn);
         var counts = await attendance.ActiveCheckInCounts(church, "event");
         Assert.Equal([new OccurrenceCheckInCount("occurrence", 1)], counts);
+        // Attendance summaries aggregate active check-ins per dimension (occurrence_member_b is the only active receipt).
+        var summaryQuery = new Query { ChurchId = church };
+        Assert.Equal([new AttendanceSummaryRow("occurrence", 1, 1)], await attendance.Summarize(summaryQuery, "occurrence"));
+        Assert.Equal([new AttendanceSummaryRow("event", 1, 1)], await attendance.Summarize(summaryQuery, "event"));
+        Assert.Equal([new AttendanceSummaryRow("member_b", 1, 1)], await attendance.Summarize(summaryQuery, "member"));
+        Assert.Equal([new AttendanceSummaryRow("2026-09-20", 1, 1)], await attendance.Summarize(summaryQuery, "day"));
+        // Group summaries unwind check-in-time inclusiveGroupIds snapshots (parent + subgroup both get the count).
+        Assert.Equal([new AttendanceSummaryRow("group", 1, 1), new AttendanceSummaryRow("subgroup", 1, 1)], await attendance.Summarize(summaryQuery, "group"));
+        // Inactive receipts are excluded by default and included when ActiveOnly is false.
+        Assert.Equal([new AttendanceSummaryRow("member_a", 1, 1), new AttendanceSummaryRow("member_b", 1, 1)], await attendance.Summarize(summaryQuery with { ActiveOnly = false }, "member"));
+        // Filters narrow summaries the same way they narrow raw search.
+        Assert.Equal([new AttendanceSummaryRow("member_b", 1, 1)], await attendance.Summarize(summaryQuery with { GroupId = "subgroup" }, "member"));
+        Assert.Equal([new AttendanceSummaryRow("member_b", 1, 1)], await attendance.Summarize(summaryQuery with { GroupId = "group", IncludeSubgroups = true }, "member"));
+        Assert.Empty(await attendance.Summarize(summaryQuery with { GroupId = "missing" }, "member"));
+        Assert.Empty(await attendance.Summarize(summaryQuery with { From = DateTimeOffset.Parse("2026-09-21T00:00:00Z") }, "member"));
+        // Ranges wider than 93 days are allowed on summaries (the cap applies only to raw list queries without memberId).
+        Assert.Equal([new AttendanceSummaryRow("event", 1, 1)], await attendance.Summarize(
+            summaryQuery with { From = DateTimeOffset.Parse("2020-01-01T00:00:00Z"), To = DateTimeOffset.Parse("2030-01-01T00:00:00Z") }, "event"));
+        // Unique members are counted distinctly within each group, not per receipt.
+        await attendance.Create(receipt with { Id = "occurrence2_member_b", OccurrenceId = "occurrence2", MemberId = "member_b", CheckedInAt = DateTimeOffset.Parse("2026-09-27T10:00:00Z") });
+        await attendance.Create(receipt with { Id = "occurrence2_member_c", OccurrenceId = "occurrence2", MemberId = "member_c", CheckedInAt = DateTimeOffset.Parse("2026-09-27T10:05:00Z") });
+        Assert.Equal([new AttendanceSummaryRow("event", 3, 2)], await attendance.Summarize(summaryQuery, "event"));
+        Assert.Equal([new AttendanceSummaryRow("occurrence", 1, 1), new AttendanceSummaryRow("occurrence2", 2, 2)], await attendance.Summarize(summaryQuery, "occurrence"));
+        Assert.Equal([new AttendanceSummaryRow("2026-09-20", 1, 1), new AttendanceSummaryRow("2026-09-27", 2, 2)], await attendance.Summarize(summaryQuery, "day"));
+        Assert.Equal(400, (await Assert.ThrowsAsync<ApiException>(() => attendance.Summarize(summaryQuery, "bogus"))).Status);
     }
 }

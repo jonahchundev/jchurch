@@ -59,6 +59,9 @@ public sealed record Query
 public sealed record Page<T>(IReadOnlyList<T> Items, string? ContinuationToken);
 public sealed record Creation<T>(T Item, bool Created);
 public sealed record OccurrenceCheckInCount(string OccurrenceId, int CheckedInCount);
+// One aggregated row of an attendance summary. Key is the grouping value: an eventId, occurrenceId, memberId,
+// groupId (unwound from inclusiveGroupIds), or a UTC date (yyyy-MM-dd) depending on the requested groupBy.
+public sealed record AttendanceSummaryRow(string Key, int CheckedInCount, int UniqueMemberCount);
 
 public interface IRepository<T> where T : Document
 {
@@ -68,6 +71,10 @@ public interface IRepository<T> where T : Document
     Task<Page<T>> Search(Query query, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<OccurrenceCheckInCount>> ActiveCheckInCounts(string churchId, string eventId, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("Check-in counts require an attendance repository.");
+    // Aggregates active attendance matching the query filters into per-group totals. groupBy must be one of
+    // event, occurrence, member, group, day. Attendance-only; no pagination (returns every group, capped at 10,000).
+    Task<IReadOnlyList<AttendanceSummaryRow>> Summarize(Query query, string groupBy, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("Summaries require an attendance repository.");
     Task<Member?> ResolveScanCode(string churchId, string code, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("Scan lookup requires a member repository.");
     // Physically deletes every document for churchId in this repository's backing container (all kinds, if the container is shared).
