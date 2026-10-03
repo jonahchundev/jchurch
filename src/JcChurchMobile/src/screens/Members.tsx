@@ -151,7 +151,7 @@ export default function Members() {
               key={member.id}
               avatar={<Avatar uri={memberImageUrl(churchId, member.id, member.imageVersion)} />}
               title={memberName(member)}
-              titleAccessory={isNewMember(member.createdOn, church.data?.newMemberDays) ? <NewMemberMark /> : undefined}
+              titleAccessory={isNewMember(member.createdOn, church.data?.newMemberDays) ? <NewMemberMark createdOn={member.createdOn} /> : undefined}
               subtitle={details || undefined}
               badge={guardianIncomplete(member) ? "Guardian info incomplete" : undefined}
               badgeTone="danger"
@@ -470,9 +470,7 @@ function MemberEditor({
           churchId={churchId}
           member={current}
           disabled={locked}
-          onMemberChange={(imageVersion) =>
-            setCurrent((previous) => (previous ? { ...previous, imageVersion } : previous))
-          }
+          onMemberChange={setCurrent}
           pending={pendingPhoto}
           onPendingChange={setPendingPhoto}
         />

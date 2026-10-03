@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Platform, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { api, churchPath, memberImageUrl } from "./api/hooks";
 import { message } from "./api/client";
 import type { Member } from "./api/types";
@@ -56,39 +56,34 @@ export default function MemberPhoto({
   churchId: string;
   member?: Member;
   disabled: boolean;
-  onMemberChange: (imageVersion: string | null) => void;
+  onMemberChange: (member: Member) => void;
   pending: PendingPhoto | null;
   onPendingChange: (photo: PendingPhoto | null) => void;
 }) {
-  const client = useQueryClient();
   const [error, setError] = useState("");
-  const refresh = async () => {
-    await client.invalidateQueries({
-      queryKey: [churchPath(churchId, "members")],
-    });
-    if (member)
-      await client.invalidateQueries({
-        queryKey: [churchPath(churchId, `members/${member.id}`)],
-      });
-  };
+  // The image endpoints Replace the member server-side (bumping imageVersion), which rotates its
+  // ETag. We re-fetch the member and hand the fresh copy up so the editor's next save PUT uses the
+  // current _etag instead of a stale one (412). We deliberately do NOT invalidate the detail query —
+  // MemberDetails refetches with gcTime/staleTime 0, which would unmount MemberEditor mid-edit.
+  const refreshMember = () =>
+    api.get<Member>(churchPath(churchId, `members/${member!.id}`));
   const upload = useMutation({
-    mutationFn: (photo: PendingPhoto) =>
-      api.uploadMemberImage(churchId, member!.id, {
+    mutationFn: async (photo: PendingPhoto) => {
+      await api.uploadMemberImage(churchId, member!.id, {
         contentType: photo.contentType,
         data: photo.data,
-      }),
-    onSuccess: async (result) => {
-      onMemberChange(result.imageVersion);
-      await refresh();
+      });
+      return refreshMember();
     },
+    onSuccess: (fresh) => onMemberChange(fresh),
     onError: (failure) => setError(message(failure)),
   });
   const remove = useMutation({
-    mutationFn: () => api.deleteMemberImage(churchId, member!.id),
-    onSuccess: async () => {
-      onMemberChange(null);
-      await refresh();
+    mutationFn: async () => {
+      await api.deleteMemberImage(churchId, member!.id);
+      return refreshMember();
     },
+    onSuccess: (fresh) => onMemberChange(fresh),
     onError: (failure) => setError(message(failure)),
   });
   const busy = upload.isPending || remove.isPending;

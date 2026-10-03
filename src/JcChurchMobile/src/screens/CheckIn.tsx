@@ -435,7 +435,7 @@ function ActiveCheckIn({
                     <Row
                       avatar={<Avatar uri={memberImageUrl(event.churchId, member.id, member.imageVersion)} />}
                       title={memberName(member)}
-                      titleAccessory={isNewMember(member.createdOn, church.data?.newMemberDays) ? <NewMemberMark /> : undefined}
+                      titleAccessory={isNewMember(member.createdOn, church.data?.newMemberDays) ? <NewMemberMark createdOn={member.createdOn} /> : undefined}
                       subtitle={details || undefined}
                       badge={badge || undefined}
                       badgeTone={incomplete ? "danger" : "default"}

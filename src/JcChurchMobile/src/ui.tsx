@@ -147,11 +147,18 @@ export function UserChip({
     </Pressable>
   );
 }
-export function NewMemberMark() {
+export function NewMemberMark({ createdOn }: { createdOn?: string | null }) {
+  const date =
+    typeof createdOn === "string" && createdOn
+      ? DateTime.fromISO(createdOn, { setZone: true })
+      : null;
+  const dateLabel = date?.isValid ? date.toLocal().toLocaleString(DateTime.DATE_MED) : null;
   return (
-    <View accessible accessibilityLabel="Newly registered" style={{ flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 6, minHeight: 22, borderRadius: 4, backgroundColor: colors.pale }}>
+    <View accessible accessibilityLabel={dateLabel ? `Newly registered ${dateLabel}` : "Newly registered"} style={{ flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 6, minHeight: 22, borderRadius: 4, backgroundColor: colors.pale }}>
       <Icon name="sparkles-outline" size={13} />
-      <Text style={{ color: colors.primary, fontFamily: "Manrope_600SemiBold", fontSize: 12 }}>New</Text>
+      <Text style={{ color: colors.primary, fontFamily: "Manrope_600SemiBold", fontSize: 12 }}>
+        {dateLabel ? `New · ${dateLabel}` : "New"}
+      </Text>
     </View>
   );
 }
