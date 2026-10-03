@@ -172,7 +172,7 @@ resource app 'Microsoft.Web/sites@2024-04-01' = {
         { name: 'AzureWebJobsStorage__queueServiceUri', value: storage.properties.primaryEndpoints.queue }
         { name: 'AzureWebJobsStorage__tableServiceUri', value: storage.properties.primaryEndpoints.table }
         { name: 'AzureWebJobsStorage__credential', value: 'managedidentity' }
-        { name: 'AzureWebJobs.OccurrenceMaintenance.Disabled', value: 'false' }
+        { name: 'AzureWebJobs.OccurrenceMaintenance.Disabled', value: 'true' }
       ]
     }
   }
