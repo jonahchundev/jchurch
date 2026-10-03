@@ -89,7 +89,9 @@ export function useGoogleAuthRequest() {
       // expiry (~1 hour). Acceptable for the current client-side identity gate.
       responseType: AuthSession.ResponseType.IdToken,
       usePKCE: false,
-      extraParams: { nonce },
+      // prompt=select_account forces Google's account chooser every time instead of
+      // silently reusing the cached Google session (no auto-select).
+      extraParams: { nonce, prompt: "select_account" },
     },
     googleDiscovery,
   );

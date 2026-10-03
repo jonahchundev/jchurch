@@ -20,6 +20,26 @@ The staff UI has two sign-in options, both client-side only:
 Either method persists locally until Logout is selected in Settings. Public registration and
 update pages remain accessible without signing in.
 
+### Roles and user management
+
+The app has three roles, resolved client-side from the signed-in identity:
+
+- **Global admin** — the temporary `admin` login is a built-in global admin with no stored
+  record; it sees all churches and can invite anyone. Global admins are not created via the UI.
+- **Church admin** — sees only their assigned churches; can invite users and church admins, but
+  only associate them with churches the church admin belongs to.
+- **User** — sees only their assigned churches; no management UI.
+
+Admins pre-provision accounts on the Settings → Manage users screen by entering an email, role,
+and church assignments. No email is sent. When that person later signs in with Google (matching
+email), the app calls `POST /users/{email}/claim` to flip their record from **Invited** to
+**Active** (shown as a badge in the user list). Google sign-ins with no matching record see an
+empty church list with an "ask an administrator to invite you" notice.
+
+The backend `/api/v1/users` endpoints remain anonymous: they validate structure (role values,
+church existence, email format) but not the caller. Role rules are enforced in the client only
+until backend authorization lands.
+
 This is **not security**: Expo public environment values are embedded in the client bundle, the
 anonymous API remains directly callable without the app, and Google ID-token signatures are not
 verified client-side. Do not use this gate with real member data or represent it as production

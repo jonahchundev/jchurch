@@ -8,6 +8,7 @@ import {
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ApiError } from "./api/client";
 import { AuthProvider } from "./auth/AuthContext";
+import { RoleProvider } from "./auth/RoleContext";
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -34,7 +35,9 @@ export function Providers({ children }: { children: ReactNode }) {
   return (
     <SafeAreaProvider>
       <QueryClientProvider client={queryClient}>
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider>
+          <RoleProvider>{children}</RoleProvider>
+        </AuthProvider>
       </QueryClientProvider>
     </SafeAreaProvider>
   );

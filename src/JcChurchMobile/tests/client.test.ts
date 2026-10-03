@@ -8,6 +8,8 @@ import {
 import { ApiError, createApi, queryString } from "../src/api/client";
 import { attendanceRange, churchSchema, createdOnLabel, describeRecurrence, isNewMember, localToUtc, memberInput, memberSchema, normalizeScanCode, publicMemberInput, publicRegistrationDefaults, publicRegistrationSchema, timeZoneLabel } from "../src/domain";
 import { splitGroupImportRow, splitImportRow } from "../src/csvSchema";
+import type { AppRole, Church, User } from "../src/api/types";
+import { canManageUsers, filterChurches, filterManagedUsers, isGlobalAdmin, resolveRole, type RoleInfo } from "../src/auth/roles";
 
 describe("API contracts", () => {
   it("selects arbitrary platform API bases and preserves web paths", () => {
@@ -430,5 +432,59 @@ describe("dates and validation", () => {
     expect(isNewMember("2026-09-26T09:00:00Z", 0, now)).toBe(false);
     expect(isNewMember(null, 6, now)).toBe(false);
     expect(createdOnLabel(null)).toBe("Registration date unavailable");
+  });
+});
+
+describe("user roles", () => {
+  const churchA = { id: "church_a", name: "A" } as never;
+  const churchB = { id: "church_b", name: "B" } as never;
+  const churches = [churchA, churchB] as Church[];
+  const googleUser = { provider: "google", email: "jane@example.com" } as const;
+  const record = (role: AppRole, churchIds: string[], over: Partial<User> = {}): User => ({
+    id: "jane@example.com",
+    churchId: "global",
+    kind: "User",
+    _etag: "e",
+    active: true,
+    email: "jane@example.com",
+    role,
+    churchIds,
+    invitedBy: "admin",
+    status: "invited",
+    ...over,
+  } as User);
+
+  it("treats the temporary admin login as a built-in global admin", () => {
+    expect(isGlobalAdmin({ provider: "admin" })).toBe(true);
+    expect(isGlobalAdmin(googleUser)).toBe(false);
+    expect(resolveRole({ provider: "admin" }, null)).toEqual({ kind: "global-admin", role: "global-admin", churchIds: [] });
+  });
+
+  it("resolves provisioned Google users by email record and detects unprovisioned ones", () => {
+    expect(resolveRole(googleUser, record("church-admin", ["church_a"]))).toMatchObject({ kind: "provisioned", role: "church-admin", churchIds: ["church_a"] });
+    expect(resolveRole(googleUser, null)).toEqual({ kind: "unprovisioned" });
+    expect(resolveRole(googleUser, record("user", ["church_a"], { active: false }))).toEqual({ kind: "unprovisioned" });
+  });
+
+  it("gates user management to global and church admins", () => {
+    expect(canManageUsers({ kind: "global-admin", role: "global-admin", churchIds: [] })).toBe(true);
+    expect(canManageUsers({ kind: "provisioned", role: "church-admin", churchIds: ["church_a"], user: record("church-admin", ["church_a"]) })).toBe(true);
+    expect(canManageUsers({ kind: "provisioned", role: "user", churchIds: ["church_a"], user: record("user", ["church_a"]) })).toBe(false);
+    expect(canManageUsers({ kind: "unprovisioned" })).toBe(false);
+  });
+
+  it("filters churches by role: global admin sees all, others see assigned only", () => {
+    expect(filterChurches(churches, { kind: "global-admin", role: "global-admin", churchIds: [] })).toHaveLength(2);
+    expect(filterChurches(churches, { kind: "provisioned", role: "church-admin", churchIds: ["church_a"], user: record("church-admin", ["church_a"]) }).map((c) => c.id)).toEqual(["church_a"]);
+    expect(filterChurches(churches, { kind: "unprovisioned" })).toHaveLength(0);
+  });
+
+  it("scopes manageable users to a church admin's own churches", () => {
+    const admin: RoleInfo = { kind: "provisioned", role: "church-admin", churchIds: ["church_a"], user: record("church-admin", ["church_a"]) };
+    const inScope = record("user", ["church_a"]);
+    const outOfScope = record("user", ["church_b"], { id: "other@example.com", email: "other@example.com" });
+    const both = record("user", ["church_a", "church_b"], { id: "both@example.com", email: "both@example.com" });
+    expect(filterManagedUsers([inScope, outOfScope, both], admin).map((u) => u.email)).toEqual(["jane@example.com", "both@example.com"]);
+    expect(filterManagedUsers([inScope, outOfScope], { kind: "global-admin", role: "global-admin", churchIds: [] })).toHaveLength(2);
   });
 });

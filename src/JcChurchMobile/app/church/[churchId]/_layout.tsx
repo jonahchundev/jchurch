@@ -4,6 +4,8 @@ import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api, churchPath } from "../../../src/api/hooks";
 import type { Church } from "../../../src/api/types";
+import { useAuth } from "../../../src/auth/AuthContext";
+import { useRole } from "../../../src/auth/RoleContext";
 import {
   Button,
   colors,
@@ -11,6 +13,7 @@ import {
   IconButton,
   Page,
   QueryState,
+  UserChip,
 } from "../../../src/ui";
 
 export default function ChurchLayout() {
@@ -18,6 +21,10 @@ export default function ChurchLayout() {
   const router = useRouter();
   const client = useQueryClient();
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
+  const { roleInfo } = useRole();
+  // Only one church to go back to — no need for the switch control.
+  const singleChurch = roleInfo.kind === "provisioned" && roleInfo.churchIds.length === 1;
   const query = useQuery({
     queryKey: [churchPath(churchId)],
     queryFn: ({ signal }) => api.get<Church>(churchPath(churchId), signal),
@@ -50,18 +57,20 @@ export default function ChurchLayout() {
         headerTitle: query.data.name,
         headerTitleStyle: { fontFamily: "Manrope_700Bold", fontSize: 17 },
         headerStyle: { backgroundColor: colors.paper },
-        headerLeft: () => (
-          <IconButton
-            icon="swap-horizontal-outline"
-            label="Switch church"
-            onPress={() => void changeChurch()}
-          />
-        ),
+        headerLeft: () =>
+          singleChurch ? null : (
+            <IconButton
+              icon="swap-horizontal-outline"
+              label="Switch church"
+              onPress={() => void changeChurch()}
+            />
+          ),
         headerRight: () => (
           <View style={{ marginRight: 8 }}>
-            <IconButton
-              icon="settings-outline"
-              label="Settings"
+            <UserChip
+              name={user?.name ?? user?.email ?? (user?.provider === "google" ? "Google account" : "Admin")}
+              subtitle={user?.name && user.email ? user.email : undefined}
+              picture={user?.picture}
               onPress={() =>
                 router.push({
                   pathname: "/settings",

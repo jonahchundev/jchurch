@@ -199,7 +199,8 @@ public sealed class ServiceTests
     }
 
     internal static Repositories Memory() => new(new InMemoryRepository<Church>(), new InMemoryRepository<Group>(), new InMemoryRepository<Member>(),
-        new InMemoryRepository<CustomField>(), new InMemoryRepository<ChurchEvent>(), new InMemoryRepository<Occurrence>(), new InMemoryRepository<Attendance>());
+        new InMemoryRepository<CustomField>(), new InMemoryRepository<ChurchEvent>(), new InMemoryRepository<Occurrence>(), new InMemoryRepository<Attendance>(),
+        new InMemoryRepository<User>());
 
     [Fact]
     public async Task CheckInIsAtomicAndPreservesHistoricalGroups()

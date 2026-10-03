@@ -105,6 +105,19 @@ public sealed record Attendance : Document
     public AttendanceAuditEntry[] Audit { get; init; } = [];
 }
 
+public sealed record User : Document
+{
+    // Email is the identity key; Id == Email (normalized lowercase). ChurchId is the "global" sentinel.
+    public const string GlobalPartition = "global";
+    public string Email { get; init; } = "";
+    public string Role { get; init; } = "";
+    public string[] ChurchIds { get; init; } = [];
+    public string? DisplayName { get; init; }
+    public string InvitedBy { get; init; } = "";
+    public string Status { get; init; } = "invited";
+    public DateTimeOffset? ClaimedOn { get; init; }
+}
+
 public sealed record AttendanceAuditEntry
 {
     public string Action { get; init; } = "checked_in";
