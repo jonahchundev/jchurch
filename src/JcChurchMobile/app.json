@@ -15,9 +15,15 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow JChurch to scan member QR codes and barcodes.",
+          "cameraPermission": "Allow JChurch to scan member codes and take member photos.",
           "recordAudioAndroid": false,
           "microphonePermission": false
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow JChurch to add a member photo from your photo library."
         }
       ],
       "expo-sharing",

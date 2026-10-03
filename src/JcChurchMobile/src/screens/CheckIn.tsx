@@ -3,7 +3,7 @@ import { View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DateTime } from "luxon";
-import { api, churchPath, useAll, useDebounce, useList } from "../api/hooks";
+import { api, churchPath, memberImageUrl, useAll, useDebounce, useList } from "../api/hooks";
 import { ApiError, message } from "../api/client";
 import type {
   Attendance,
@@ -17,6 +17,7 @@ import { guardianIncomplete, isNewMember, memberAge, sessionTime } from "../doma
 import { registrationBaseUrl } from "../api/api-url";
 import { RegistrationCode } from "../RegistrationCode";
 import {
+  Avatar,
   Button,
   Heading,
   IconButton,
@@ -432,12 +433,12 @@ function ActiveCheckIn({
                 return (
                   <View key={member.id} style={{ paddingBottom: 14, gap: 8 }}>
                     <Row
+                      avatar={<Avatar uri={memberImageUrl(event.churchId, member.id, member.imageVersion)} />}
                       title={memberName(member)}
-                      titleAccessory={isNewMember(member.createdOn, church.data?.newMemberDays) ? <NewMemberMark /> : undefined}
+                      titleAccessory={isNewMember(member.createdOn, church.data?.newMemberDays) ? <NewMemberMark createdOn={member.createdOn} /> : undefined}
                       subtitle={details || undefined}
                       badge={badge || undefined}
                       badgeTone={incomplete ? "danger" : "default"}
-                      icon="person-outline"
                       trailing={
                         !receipt ? (
                           <Button
@@ -612,6 +613,11 @@ function AttendanceRow({
   return (
     <View style={{ paddingBottom: 8, gap: 8 }}>
       <Row
+        avatar={
+          member.data ? (
+            <Avatar uri={memberImageUrl(receipt.churchId, receipt.memberId, member.data.imageVersion)} />
+          ) : undefined
+        }
         title={
           member.data
             ? memberName(member.data)

@@ -4,7 +4,8 @@
     "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
     "AZURE_FUNCTIONS_ENVIRONMENT": "Development",
     "Storage__Provider": "InMemory",
-    "AzureWebJobs.OccurrenceMaintenance.Disabled": "true"
+    "AzureWebJobs.OccurrenceMaintenance.Disabled": "true",
+    "Images__ConnectionString": "UseDevelopmentStorage=true"
   },
   "Host": { "LocalHttpPort": 7071, "CORS": "" }
   

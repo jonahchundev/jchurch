@@ -13,13 +13,14 @@ using Microsoft.Extensions.Logging;
 
 namespace JChurch.Functions;
 
-public sealed class ChurchApi(Repositories repositories, DirectoryService directory, EventService events, CheckInService checkIns, MemberCsvService memberCsv, GroupCsvService groupCsv, UserService users, ILogger<ChurchApi> logger)
+public sealed class ChurchApi(Repositories repositories, DirectoryService directory, EventService events, CheckInService checkIns, MemberCsvService memberCsv, GroupCsvService groupCsv, UserService users, MemberImageService memberImages, ILogger<ChurchApi> logger)
 {
-    private sealed record Result(int Status, object? Body = null, string? Location = null, bool RawText = false);
+    private sealed record Result(int Status, object? Body = null, string? Location = null, bool RawText = false, byte[]? Bytes = null, string? ContentType = null, string? CacheControl = null);
     private sealed record MemberImportRequest(MemberImportRow[] Rows);
     private sealed record GroupImportRequest(GroupImportRow[] Rows);
     private sealed record CheckInRequest(string MemberId);
     private sealed record ScanRequest(string ScanCode);
+    private sealed record MemberImageUpload(string ContentType = "", string Data = "");
     private static readonly System.Threading.RateLimiting.TokenBucketRateLimiter ScanLimiter = new(new()
     {
         TokenLimit = 120, TokensPerPeriod = 120, ReplenishmentPeriod = TimeSpan.FromMinutes(1),
@@ -35,13 +36,18 @@ public sealed class ChurchApi(Repositories repositories, DirectoryService direct
         {
             var result = await Dispatch(request, (path ?? "").Split('/', StringSplitOptions.RemoveEmptyEntries), cancellationToken);
             var response = request.CreateResponse((HttpStatusCode)result.Status);
-            response.Headers.Add("Cache-Control", "no-store");
+            response.Headers.Add("Cache-Control", result.CacheControl ?? "no-store");
             if (result.Body is Document document) response.Headers.Add("ETag", document.ETag);
             if (result.Location is not null) response.Headers.Add("Location", result.Location);
             if (result.RawText && result.Body is string text)
             {
                 response.Headers.Add("Content-Type", "text/csv; charset=utf-8");
                 await response.WriteStringAsync(text, cancellationToken);
+            }
+            else if (result.Bytes is not null)
+            {
+                response.Headers.Add("Content-Type", result.ContentType ?? "application/octet-stream");
+                await response.Body.WriteAsync(result.Bytes, cancellationToken);
             }
             else if (result.Body is not null)
             {
@@ -118,6 +124,27 @@ public sealed class ChurchApi(Repositories repositories, DirectoryService direct
                 _ => throw new ApiException(404, "not_found", "Route not found.")
             };
         }
+        if (route is ["churches", _, "members", var imageMemberId, "image"])
+        {
+            if (request.Method == "PUT")
+            {
+                var input = await ImageBody(request, cancellationToken);
+                return new(200, new { imageVersion = await memberImages.Upload(churchId, imageMemberId, input.ContentType, input.Data, cancellationToken) });
+            }
+            if (request.Method == "GET")
+            {
+                var image = await memberImages.GetImage(churchId, imageMemberId, cancellationToken);
+                if (image is null) throw new ApiException(404, "not_found", "This member has no photo.");
+                // URLs carry ?v={imageVersion}, so cached copies never go stale.
+                return new(200, Bytes: image.Content, ContentType: image.ContentType, CacheControl: "private, max-age=31536000, immutable");
+            }
+            if (request.Method == "DELETE")
+            {
+                await memberImages.Delete(churchId, imageMemberId, cancellationToken);
+                return new(204);
+            }
+            throw MethodNotAllowed();
+        }
         if (route.Length == 5 && route[2] == "events" && route[4] == "occurrences")
         {
             await directory.Get<ChurchEvent>(churchId, route[3], cancellationToken: cancellationToken);
@@ -138,7 +165,7 @@ public sealed class ChurchApi(Repositories repositories, DirectoryService direct
             if (!lease.IsAcquired) throw new ApiException(429, "scan_rate_limit", "Too many scans. Pause before retrying.");
             var input = await Body<ScanRequest>(request, cancellationToken);
             var member = await checkIns.ResolveScan(churchId, input.ScanCode, cancellationToken);
-            var display = new { id = member.Id, firstName = member.FirstName, lastName = member.LastName };
+            var display = new { id = member.Id, firstName = member.FirstName, lastName = member.LastName, imageVersion = member.ImageVersion };
             if (route.Length == 6)
             {
                 var receipt = await checkIns.Status(churchId, route[3], member.Id, cancellationToken);
@@ -296,7 +323,7 @@ public sealed class ChurchApi(Repositories repositories, DirectoryService direct
         foreach (var property in document.RootElement.EnumerateObject())
         {
             if (!seen.Add(property.Name)) throw new JsonException();
-            if (typeof(Document).IsAssignableFrom(typeof(T)) && new[] { "id", "churchId", "kind", "_etag", "active", "searchText", "createdOn", "updatedOn" }.Contains(property.Name, StringComparer.OrdinalIgnoreCase))
+            if (typeof(Document).IsAssignableFrom(typeof(T)) && new[] { "id", "churchId", "kind", "_etag", "active", "searchText", "createdOn", "updatedOn", "imageVersion" }.Contains(property.Name, StringComparer.OrdinalIgnoreCase))
                 throw new ApiException(400, "read_only_field", "Request includes a server-managed field.");
         }
         var input = document.RootElement.Deserialize<T>(Json.Options) ?? throw new JsonException();
@@ -305,6 +332,27 @@ public sealed class ChurchApi(Repositories repositories, DirectoryService direct
         if (input is Member member)
             return (T)(object)(member with { ScanCodeSpecified = seen.Contains("scanCode"), ScanCodeFormatSpecified = seen.Contains("scanCodeFormat") });
         return input;
+    }
+
+    // Photos arrive as base64 JSON (the app downsizes before upload), so they need a larger cap than the 64 KiB document body.
+    private static async Task<MemberImageUpload> ImageBody(HttpRequestData request, CancellationToken cancellationToken)
+    {
+        if (!request.Headers.TryGetValues("Content-Type", out var types) || !types.Any(type => type.Split(';')[0].Trim().Equals("application/json", StringComparison.OrdinalIgnoreCase)))
+            throw new ApiException(415, "unsupported_media_type", "Use application/json.");
+        using var buffer = new MemoryStream();
+        var chunk = new byte[8192];
+        int count;
+        while ((count = await request.Body.ReadAsync(chunk, cancellationToken)) > 0)
+        {
+            if (buffer.Length + count > 1_400_000) throw new ApiException(413, "body_too_large", "Maximum image request body is 1.4 MB; photos must decode to at most 1 MB.");
+            await buffer.WriteAsync(chunk.AsMemory(0, count), cancellationToken);
+        }
+        using var document = JsonDocument.Parse(buffer.ToArray());
+        if (document.RootElement.ValueKind != JsonValueKind.Object) throw new JsonException();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var property in document.RootElement.EnumerateObject())
+            if (!seen.Add(property.Name)) throw new JsonException();
+        return document.RootElement.Deserialize<MemberImageUpload>(Json.Options) ?? throw new JsonException();
     }
 
     private static async Task<MemberImportRequest> ImportBody(HttpRequestData request, CancellationToken cancellationToken)

@@ -147,11 +147,18 @@ export function UserChip({
     </Pressable>
   );
 }
-export function NewMemberMark() {
+export function NewMemberMark({ createdOn }: { createdOn?: string | null }) {
+  const date =
+    typeof createdOn === "string" && createdOn
+      ? DateTime.fromISO(createdOn, { setZone: true })
+      : null;
+  const dateLabel = date?.isValid ? date.toLocal().toLocaleString(DateTime.DATE_MED) : null;
   return (
-    <View accessible accessibilityLabel="Newly registered" style={{ flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 6, minHeight: 22, borderRadius: 4, backgroundColor: colors.pale }}>
+    <View accessible accessibilityLabel={dateLabel ? `Newly registered ${dateLabel}` : "Newly registered"} style={{ flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 6, minHeight: 22, borderRadius: 4, backgroundColor: colors.pale }}>
       <Icon name="sparkles-outline" size={13} />
-      <Text style={{ color: colors.primary, fontFamily: "Manrope_600SemiBold", fontSize: 12 }}>New</Text>
+      <Text style={{ color: colors.primary, fontFamily: "Manrope_600SemiBold", fontSize: 12 }}>
+        {dateLabel ? `New · ${dateLabel}` : "New"}
+      </Text>
     </View>
   );
 }
@@ -289,12 +296,42 @@ export function SearchBox({
     </View>
   );
 }
+export function Avatar({
+  uri,
+  size = 44,
+}: {
+  uri?: string | null;
+  size?: number;
+}) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [uri]);
+  return (
+    <View
+      style={[
+        styles.rowIcon,
+        { width: size, height: size, borderRadius: size / 2, overflow: "hidden" },
+      ]}
+    >
+      {uri && !failed ? (
+        <Image
+          source={{ uri }}
+          style={{ width: size, height: size }}
+          onError={() => setFailed(true)}
+          accessibilityLabel="Member photo"
+        />
+      ) : (
+        <Icon name="person-outline" size={Math.round(size * 0.55)} />
+      )}
+    </View>
+  );
+}
 export function Row({
   title,
   titleAccessory,
   subtitle,
   onPress,
   icon = "chevron-forward",
+  avatar,
   badge,
   badgeTone = "default",
   trailing,
@@ -305,6 +342,7 @@ export function Row({
   subtitle?: string;
   onPress?: () => void;
   icon?: IconName;
+  avatar?: ReactNode;
   badge?: string;
   badgeTone?: "default" | "danger";
   trailing?: ReactNode;
@@ -312,9 +350,11 @@ export function Row({
 }) {
   const body = (
     <>
-      <View style={styles.rowIcon}>
-        <Icon name={icon} />
-      </View>
+      {avatar ?? (
+        <View style={styles.rowIcon}>
+          <Icon name={icon} />
+        </View>
+      )}
       <View style={{ flex: 1, minWidth: 0, gap: 5 }}>
         <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
           <Text style={styles.rowTitle}>{title}</Text>

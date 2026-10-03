@@ -4,15 +4,17 @@ import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Controller, useForm, type Control } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { api, churchPath, useAll, useDebounce, useList } from "../api/hooks";
+import { api, churchPath, memberImageUrl, useAll, useDebounce, useList } from "../api/hooks";
 import { ApiError, message } from "../api/client";
 import type { Church, CustomField, Group, Member } from "../api/types";
 import { createdOnLabel, guardianIncomplete, isNewMember, memberAge, memberInput, memberSchema, normalizeScanCode, type MemberFormValues } from "../domain";
 import { generateScanCode, ScanCard, ScanInput } from "../ScanCode";
 import { registrationBaseUrl } from "../api/api-url";
 import { RegistrationCode } from "../RegistrationCode";
+import MemberPhoto, { type PendingPhoto } from "../MemberPhoto";
 import MembersImportExport from "./MembersImportExport";
 import {
+  Avatar,
   Button,
   DateField,
   Field,
@@ -147,12 +149,12 @@ export default function Members() {
           return (
             <Row
               key={member.id}
+              avatar={<Avatar uri={memberImageUrl(churchId, member.id, member.imageVersion)} />}
               title={memberName(member)}
-              titleAccessory={isNewMember(member.createdOn, church.data?.newMemberDays) ? <NewMemberMark /> : undefined}
+              titleAccessory={isNewMember(member.createdOn, church.data?.newMemberDays) ? <NewMemberMark createdOn={member.createdOn} /> : undefined}
               subtitle={details || undefined}
               badge={guardianIncomplete(member) ? "Guardian info incomplete" : undefined}
               badgeTone="danger"
-              icon="person-outline"
               onPress={() => setEditing(member)}
             />
           );
@@ -172,9 +174,9 @@ export default function Members() {
           member={editing === "new" ? undefined : editing}
           churchId={churchId}
           onClose={() => setEditing(null)}
-          onSaved={async (archived) => {
+          onSaved={async (archived, savedNotice) => {
             setEditing(null);
-            setNotice(archived ? "Member archived." : "Member saved.");
+            setNotice(savedNotice ?? (archived ? "Member archived." : "Member saved."));
             await client.invalidateQueries({ queryKey: [path] });
           }}
         />
@@ -369,12 +371,13 @@ function MemberEditor({
   member?: Member;
   churchId: string;
   onClose: () => void;
-  onSaved: (archived: boolean) => void;
+  onSaved: (archived: boolean, notice?: string) => void;
 }) {
   const [current, setCurrent] = useState(member);
   const [editing, setEditing] = useState(!member);
   const [confirmArchive, setConfirmArchive] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [pendingPhoto, setPendingPhoto] = useState<PendingPhoto | null>(null);
   const [guardian2Enabled, setGuardian2Enabled] = useState(!!member?.guardian2);
   const [replacement, setReplacement] = useState<MemberFormValues | null>(null);
   const [updateLinkOpen, setUpdateLinkOpen] = useState(false);
@@ -405,7 +408,22 @@ function MemberEditor({
         memberInput(values, definitions.data ?? []),
         current?._etag,
       ),
-    onSuccess: () => onSaved(false),
+    onSuccess: async (saved) => {
+      // A photo picked before the member existed is uploaded now, under the created id.
+      if (pendingPhoto) {
+        try {
+          await api.uploadMemberImage(churchId, saved.id, {
+            contentType: pendingPhoto.contentType,
+            data: pendingPhoto.data,
+          });
+          setPendingPhoto(null);
+        } catch {
+          onSaved(false, "Member saved, but the photo upload failed. Edit the member to add it.");
+          return;
+        }
+      }
+      onSaved(false);
+    },
   });
   const archive = useMutation({
     mutationFn: () =>
@@ -448,6 +466,14 @@ function MemberEditor({
       onClose={onClose}
     >
       <View style={styles.stack}>
+        <MemberPhoto
+          churchId={churchId}
+          member={current}
+          disabled={locked}
+          onMemberChange={setCurrent}
+          pending={pendingPhoto}
+          onPendingChange={setPendingPhoto}
+        />
         {current && !editing && (
           <Button
             icon="create-outline"

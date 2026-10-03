@@ -99,12 +99,16 @@ public sealed class DirectoryService(Repositories repositories, TimeProvider clo
                 document = group with { Name = group.Name.Trim(), SearchText = group.Name.Trim() };
                 break;
             case Member member:
+                // ScanCode/ImageVersion are server-managed or omission-preserving; ImageVersion changes only via the image endpoint.
                 if (existing is Member previous)
                     member = member with
                     {
                         ScanCode = member.ScanCodeSpecified || member.ScanCode is not null ? member.ScanCode : previous.ScanCode,
-                        ScanCodeFormat = member.ScanCodeFormatSpecified || member.ScanCodeFormat is not null ? member.ScanCodeFormat : previous.ScanCodeFormat
+                        ScanCodeFormat = member.ScanCodeFormatSpecified || member.ScanCodeFormat is not null ? member.ScanCodeFormat : previous.ScanCodeFormat,
+                        ImageVersion = previous.ImageVersion
                     };
+                else
+                    member = member with { ImageVersion = null };
                 member = ScanCodes.Normalize(member);
                 Require(member.MemberType is "child" or "adult", "memberType must be child or adult.");
                 Name(member.FirstName, "firstName");

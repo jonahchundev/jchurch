@@ -97,6 +97,7 @@ const futureOccurrence = (await api(`${root}/events/${futureEvent.id}/occurrence
 const scanPath = `${root}/occurrences/${futureOccurrence.id}/scan-check-ins`;
 const firstScan = await api(scanPath, 'POST', { scanCode: ' 0000-scan-original\r\n' }, 201);
 assert.equal(firstScan.member.id, scanMember.id);
+assert.equal(firstScan.member.imageVersion, null);
 assert.equal((await api(scanPath, 'POST', { scanCode: scanInput.scanCode })).already, true);
 assert.equal((await api(`${scanPath}/status`, 'POST', { scanCode: scanInput.scanCode })).checkedIn, true);
 assert.equal((await api(`${root}/occurrences/${futureOccurrence.id}/check-ins`, 'POST', { memberId: scanMember.id })).id, firstScan.receipt.id);
@@ -116,6 +117,29 @@ await api(scanPath, 'POST', { scanCode: 'https://invalid' }, 400);
 scanMember = await api(`${root}/members/${scanMember.id}`, 'PUT', { ...scanInput, scanCode: null }, 200, scanMember._etag);
 assert.equal(scanMember.scanCode, null);
 await api(scanPath, 'POST', { scanCode: '0000-scan-replaced' }, 404);
+
+// Member photo round-trip: upload → read bytes with immutable caching → preserved across edits → delete.
+const tinyJpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]).toString('base64');
+const photoUpload = await api(`${root}/members/${member.id}/image`, 'PUT', { contentType: 'image/jpeg', data: tinyJpeg });
+assert.ok(photoUpload.imageVersion);
+await api(`${root}/members/${member.id}/image`, 'PUT', { contentType: 'image/gif', data: tinyJpeg }, 400);
+await api(`${root}/members/${member.id}/image`, 'PUT', { contentType: 'image/jpeg', data: '!!!' }, 400);
+await api(`${root}/members/${member.id}/image`, 'PUT', { contentType: 'image/jpeg', data: tinyJpeg, extra: true }, 400);
+const photoMember = await api(`${root}/members/${member.id}`);
+assert.equal(photoMember.imageVersion, photoUpload.imageVersion);
+const photoResponse = await fetch(`${base}${root}/members/${member.id}/image?v=${photoUpload.imageVersion}`, { signal: AbortSignal.timeout(30000) });
+assert.equal(photoResponse.status, 200);
+assert.equal(photoResponse.headers.get('Content-Type'), 'image/jpeg');
+assert.match(photoResponse.headers.get('Cache-Control') ?? '', /immutable/);
+assert.deepEqual([...new Uint8Array(await photoResponse.arrayBuffer())], [0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
+// The member's original groups were archived above, so edits from here on use groupIds: [].
+await api(`${root}/members/${member.id}`, 'PUT', { ...memberInput, groupIds: [], imageVersion: 'forged' }, 400, photoMember._etag);
+const afterPhotoEdit = await api(`${root}/members/${member.id}`, 'PUT', { ...memberInput, groupIds: [], allergyDetail: 'Photo survives edits' }, 200, photoMember._etag);
+assert.equal(afterPhotoEdit.imageVersion, photoUpload.imageVersion);
+await api(`${root}/members/${member.id}/image`, 'DELETE', undefined, 204);
+assert.equal((await api(`${root}/members/${member.id}`)).imageVersion, null);
+await api(`${root}/members/${member.id}/image`, 'GET', undefined, 404);
+await api(`${root}/members/member_missing/image`, 'PUT', { contentType: 'image/jpeg', data: tinyJpeg }, 404);
 
 // User management: invite, claim, update, filters, archive. Email is unique per run so re-runs on a live host stay clean.
 const run = Date.now().toString(36);

@@ -38,6 +38,12 @@ resource deployments 'Microsoft.Storage/storageAccounts/blobServices/containers@
   properties: { publicAccess: 'None' }
 }
 
+resource memberImages 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
+  parent: blobService
+  name: 'member-images'
+  properties: { publicAccess: 'None' }
+}
+
 resource cosmos 'Microsoft.DocumentDB/databaseAccounts@2024-11-15' = {
   name: 'cosmos-jchurch-${suffix}'
   location: location
@@ -162,6 +168,7 @@ resource app 'Microsoft.Web/sites@2024-04-01' = {
         { name: 'Cosmos__Database', value: database.name }
         { name: 'AzureWebJobsStorage__accountName', value: storage.name }
         { name: 'AzureWebJobsStorage__blobServiceUri', value: storage.properties.primaryEndpoints.blob }
+        { name: 'Images__blobServiceUri', value: storage.properties.primaryEndpoints.blob }
         { name: 'AzureWebJobsStorage__queueServiceUri', value: storage.properties.primaryEndpoints.queue }
         { name: 'AzureWebJobsStorage__tableServiceUri', value: storage.properties.primaryEndpoints.table }
         { name: 'AzureWebJobsStorage__credential', value: 'managedidentity' }
