@@ -29,17 +29,32 @@ function withGuideAssetUrls(markdown: string) {
 }
 
 function GuideImage({ uri, alt, width }: { uri: string; alt: string; width: number }) {
-  const [aspectRatio, setAspectRatio] = useState(932 / 430);
+  const [aspectRatio, setAspectRatio] = useState<number | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setAspectRatio(null);
+    Image.getSize(
+      uri,
+      (imageWidth, imageHeight) => {
+        if (active && imageWidth > 0 && imageHeight > 0) setAspectRatio(imageHeight / imageWidth);
+      },
+      () => {
+        if (active) setAspectRatio(1);
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [uri]);
+
+  if (aspectRatio === null) return <ActivityIndicator color={colors.primary} style={{ marginVertical: 20 }} />;
 
   return (
     <Image
       source={{ uri }}
       accessibilityLabel={alt}
       resizeMode="contain"
-      onLoad={({ nativeEvent }) => {
-        const { width: imageWidth, height: imageHeight } = nativeEvent.source;
-        if (imageWidth > 0 && imageHeight > 0) setAspectRatio(imageHeight / imageWidth);
-      }}
       style={{
         width,
         height: width * aspectRatio,

@@ -389,9 +389,13 @@ async function seedAdmin(page: Page) {
   });
 }
 
-async function shot(page: Page, name: string) {
+async function shot(page: Page, name: string, height?: number) {
   await page.waitForTimeout(600);
-  await page.screenshot({ path: path.join(IMG, `${name}.png`) });
+  const viewport = page.viewportSize();
+  await page.screenshot({
+    path: path.join(IMG, `${name}.png`),
+    ...(height && viewport ? { clip: { x: 0, y: 0, width: viewport.width, height } } : {}),
+  });
 }
 
 const sessionLabel = (start: DateTime) =>
@@ -411,12 +415,12 @@ test("guide screenshot: home overview", async ({ page }) => {
 test("guide screenshots: sign-in and church picker", async ({ page }) => {
   await page.goto("/login");
   await expect(page.getByRole("heading", { name: "Sign in" }).last()).toBeVisible();
-  await shot(page, "01-login");
+  await shot(page, "01-login", 600);
 
   await seedAdmin(page);
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Choose your church" })).toBeVisible();
-  await shot(page, "01-choose-church");
+  await shot(page, "01-choose-church", 500);
 });
 
 test("guide screenshots: members list, sort/filter, import-export", async ({ page }) => {
