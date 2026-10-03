@@ -36,7 +36,9 @@ export default function ChurchLayout() {
   async function changeChurch() {
     await client.cancelQueries();
     client.clear();
-    router.dismissAll();
+    // No dismissAll(): the church tabs sit on the root stack (not a modal), so when
+    // there are no screens to pop it dispatches an unhandled POP_TO_TOP and the
+    // pending replace gets dropped. Replacing straight to the picker is sufficient.
     router.replace("/");
   }
   if (query.isPending || query.error || !query.data?.active)
@@ -142,6 +144,11 @@ export default function ChurchLayout() {
       />
       <Tabs.Screen
         name="custom-fields"
+        initialParams={{ churchId }}
+        options={{ href: null }}
+      />
+      <Tabs.Screen
+        name="duplicates"
         initialParams={{ churchId }}
         options={{ href: null }}
       />

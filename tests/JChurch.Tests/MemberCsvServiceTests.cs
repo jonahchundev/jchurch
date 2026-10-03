@@ -50,6 +50,35 @@ public sealed class MemberCsvServiceTests
         Assert.Equal("Female", created.Gender);
     }
 
+    [Theory]
+    [InlineData("2015-12-22", 2015, 12, 22)]
+    [InlineData("12/22/2015", 2015, 12, 22)]
+    [InlineData("12/22/15", 2015, 12, 22)]
+    [InlineData("3/28/14", 2014, 3, 28)]
+    public async Task ImportAcceptsCommonBirthDateFormats(string input, int year, int month, int day)
+    {
+        var (repositories, directory, csv) = Setup();
+        var church = await directory.Save(new Church { Name = "Dates" }, null);
+        var row = new MemberImportRow(null, "adult", "Grace", null, "Hopper", "Female", input, null, null, null, null, null,
+            null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        var result = await csv.Import(church.Id, [row], default);
+        Assert.Equal(1, result.Created);
+        var created = (await repositories.Members.Search(new Query { ChurchId = church.Id })).Items.Single(member => member.LastName == "Hopper");
+        Assert.Equal(new DateOnly(year, month, day), created.BirthDate);
+    }
+
+    [Fact]
+    public async Task ImportRejectsUnparseableBirthDate()
+    {
+        var (_, directory, csv) = Setup();
+        var church = await directory.Save(new Church { Name = "Dates" }, null);
+        var row = new MemberImportRow(null, "adult", "Grace", null, "Hopper", null, "not-a-date", null, null, null, null, null,
+            null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        var result = await csv.Import(church.Id, [row], default);
+        Assert.Equal(1, result.Failed);
+        Assert.Equal(0, result.Created);
+    }
+
     [Fact]
     public async Task ExportRoundTripsGroupsAndCustomFields()
     {

@@ -192,6 +192,34 @@ public sealed class CosmosRepository<T>(CosmosClient client, CosmosSettings sett
         return counts;
     }
 
+    public async Task<T> Transfer(string churchId, string loserId, string loserEtag, T keeper, string? keeperEtag = null, CancellationToken cancellationToken = default)
+    {
+        if (typeof(T) != typeof(Attendance)) throw new NotSupportedException("Transfer requires an attendance repository.");
+        if (string.IsNullOrWhiteSpace(loserEtag) || loserEtag == "*") throw new ApiException(412, "stale_version", "An exact ETag is required.");
+        var keeperAttendance = (Attendance)(Document)keeper;
+        if (keeperAttendance.OccurrenceId is null) throw new ApiException(400, "invalid_request", "A keeper occurrence is required.");
+        var partition = Partition(churchId, keeperAttendance.OccurrenceId);
+        var now = clock.GetUtcNow();
+        Document stamped = (Document)keeper with { CreatedOn = now, UpdatedOn = now };
+        var batch = container.CreateTransactionalBatch(partition)
+            .DeleteItem(loserId, new TransactionalBatchItemRequestOptions { IfMatchEtag = loserEtag });
+        // When the keeper's slot is occupied by an inactive receipt (e.g. an undone check-in), replace it
+        // atomically in the same batch instead of creating a new document.
+        batch = keeperEtag is null
+            ? batch.CreateItem(stamped)
+            : batch.ReplaceItem(stamped.Id, stamped, new TransactionalBatchItemRequestOptions { IfMatchEtag = keeperEtag });
+        using var response = await batch.ExecuteAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            var status = response.StatusCode;
+            if (status is HttpStatusCode.NotFound) throw new ApiException(404, "not_found", "The check-in to move was not found.");
+            if (status is HttpStatusCode.PreconditionFailed) throw new ApiException(412, "stale_version", "ETag is stale.");
+            if (status is HttpStatusCode.Conflict) throw new ApiException(409, "already_exists", "The kept member already has a check-in for this occurrence.");
+            throw new ApiException((int)status, "transfer_failed", "The check-in could not be moved.");
+        }
+        return keeper with { CreatedOn = now, UpdatedOn = now };
+    }
+
     // Deletes every document for churchId in this container: for Attendance, a churchId-only partition key spans all occurrenceId sub-partitions.
     public async Task Purge(string churchId, CancellationToken cancellationToken = default)
     {

@@ -7,6 +7,7 @@ export const MEMBER_CSV_FIXED_COLUMNS = [
   "FirstName",
   "MiddleName",
   "LastName",
+  "Gender",
   "BirthDate",
   "School",
   "Phone",
@@ -38,12 +39,14 @@ export function splitImportRow(row: Record<string, string>): MemberImportRow {
     if (!FIXED_COLUMN_SET.has(column) && value !== "") customFields[column] = value;
   }
   const memberType = row.MemberType === "child" || row.MemberType === "adult" ? row.MemberType : undefined;
+  const gender = row.Gender === "Male" || row.Gender === "Female" ? row.Gender : undefined;
   return {
     id: row.Id || undefined,
     memberType,
     firstName: row.FirstName || undefined,
     middleName: row.MiddleName || undefined,
     lastName: row.LastName || undefined,
+    gender,
     birthDate: row.BirthDate || undefined,
     school: row.School || undefined,
     phone: row.Phone || undefined,

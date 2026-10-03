@@ -202,6 +202,116 @@ public sealed class ServiceTests
         new InMemoryRepository<CustomField>(), new InMemoryRepository<ChurchEvent>(), new InMemoryRepository<Occurrence>(), new InMemoryRepository<Attendance>(),
         new InMemoryRepository<User>());
 
+    private static async Task<(Repositories Repos, DirectoryService Directory, MemberMergeService Merges, CheckInService CheckIns, Member Keeper, Member Loser)> MergeFixture(string occurrenceId = "occurrence")
+    {
+        var repositories = Memory();
+        var clock = new TestClock(DateTimeOffset.Parse("2026-09-20T10:00:00Z"));
+        var directory = new DirectoryService(repositories, clock);
+        var merges = new MemberMergeService(repositories, directory, clock);
+        var checkIns = new CheckInService(repositories, directory, clock);
+        var church = await directory.Save(new Church { Name = "Merge" }, null);
+        var keeper = await directory.Save(new Member { MemberType = "adult", FirstName = "John", LastName = "Smith" }, church.Id);
+        var loser = await directory.Save(new Member { MemberType = "adult", FirstName = "John", LastName = "Smith" }, church.Id);
+        await repositories.Events.Create(new ChurchEvent { Id = "event", ChurchId = church.Id });
+        await repositories.Occurrences.Create(new Occurrence { Id = occurrenceId, ChurchId = church.Id, EventId = "event", StartsAt = clock.Now, EndsAt = clock.Now.AddHours(1) });
+        return (repositories, directory, merges, checkIns, keeper, loser);
+    }
+
+    [Fact]
+    public async Task MergeMovesCheckInAndPreservesOccurrenceCountAndTimestamp()
+    {
+        var (repositories, directory, merges, checkIns, keeper, loser) = await MergeFixture();
+        var before = (await checkIns.CheckIn(keeper.ChurchId, "occurrence", loser.Id)).Item;
+        var countBefore = (await repositories.Attendance.ActiveCheckInCounts(keeper.ChurchId, "event")).Single().CheckedInCount;
+
+        var result = await merges.Merge(keeper.ChurchId, keeper.Id, loser.Id, loser.ETag, null, "", default);
+
+        Assert.Equal(1, result.CheckInsMoved);
+        Assert.Equal(0, result.CheckInsSkipped);
+        Assert.Equal(keeper.Id, result.Kept);
+        Assert.Equal(loser.Id, result.Archived);
+        // Count is unchanged: the receipt was moved, not removed.
+        Assert.Equal(countBefore, (await repositories.Attendance.ActiveCheckInCounts(keeper.ChurchId, "event")).Single().CheckedInCount);
+        // The keeper now owns a receipt with the loser's original CheckedInAt and an audit entry.
+        var moved = await repositories.Attendance.Get(keeper.ChurchId, CheckInService.ReceiptId("occurrence", keeper.Id), "occurrence");
+        Assert.NotNull(moved);
+        Assert.True(moved!.Active);
+        Assert.Equal(before.CheckedInAt, moved.CheckedInAt);
+        Assert.Contains(moved.Audit, entry => entry.Action == $"merged-from {loser.Id}");
+        // The loser's receipt is gone (transferred), and the loser is archived.
+        Assert.Null(await repositories.Attendance.Get(loser.ChurchId, CheckInService.ReceiptId("occurrence", loser.Id), "occurrence"));
+        Assert.False((await directory.Get<Member>(loser.ChurchId, loser.Id)).Active);
+    }
+
+    [Fact]
+    public async Task MergeOverlapKeepsKeeperReceiptAndDropsCountByOne()
+    {
+        var (repositories, directory, merges, checkIns, keeper, loser) = await MergeFixture();
+        await checkIns.CheckIn(keeper.ChurchId, "occurrence", keeper.Id);
+        await checkIns.CheckIn(keeper.ChurchId, "occurrence", loser.Id);
+        Assert.Equal(2, (await repositories.Attendance.ActiveCheckInCounts(keeper.ChurchId, "event")).Single().CheckedInCount);
+
+        var result = await merges.Merge(keeper.ChurchId, keeper.Id, loser.Id, loser.ETag, null, "", default);
+
+        Assert.Equal(0, result.CheckInsMoved);
+        Assert.Equal(1, result.CheckInsSkipped);
+        // Overlap is a real dedupe: the same person counted twice becomes one.
+        Assert.Equal(1, (await repositories.Attendance.ActiveCheckInCounts(keeper.ChurchId, "event")).Single().CheckedInCount);
+        var loserReceipt = await repositories.Attendance.Get(loser.ChurchId, CheckInService.ReceiptId("occurrence", loser.Id), "occurrence");
+        Assert.NotNull(loserReceipt);
+        Assert.False(loserReceipt!.Active);
+        Assert.Contains(loserReceipt.Audit, entry => entry.Action.StartsWith($"merged-to {keeper.Id}"));
+    }
+
+    [Fact]
+    public async Task MergeReplacesUndoneKeeperReceipt()
+    {
+        var (repositories, directory, merges, checkIns, keeper, loser) = await MergeFixture();
+        // The keeper checked in and was later undone: an inactive receipt still occupies the keeper's slot.
+        await checkIns.CheckIn(keeper.ChurchId, "occurrence", keeper.Id);
+        await checkIns.Undo(keeper.ChurchId, "occurrence", keeper.Id);
+        var loserReceipt = (await checkIns.CheckIn(keeper.ChurchId, "occurrence", loser.Id)).Item;
+
+        var result = await merges.Merge(keeper.ChurchId, keeper.Id, loser.Id, loser.ETag, null, "", default);
+
+        Assert.Equal(1, result.CheckInsMoved);
+        Assert.Equal(0, result.CheckInsSkipped);
+        // Count preserved: the keeper's inactive receipt was reactivated with the loser's content.
+        Assert.Equal(1, (await repositories.Attendance.ActiveCheckInCounts(keeper.ChurchId, "event")).Single().CheckedInCount);
+        var moved = await repositories.Attendance.Get(keeper.ChurchId, CheckInService.ReceiptId("occurrence", keeper.Id), "occurrence");
+        Assert.NotNull(moved);
+        Assert.True(moved!.Active);
+        Assert.Equal(loserReceipt.CheckedInAt, moved.CheckedInAt);
+        Assert.Contains(moved.Audit, entry => entry.Action == $"merged-from {loser.Id}");
+        Assert.Null(await repositories.Attendance.Get(loser.ChurchId, CheckInService.ReceiptId("occurrence", loser.Id), "occurrence"));
+        Assert.False((await directory.Get<Member>(loser.ChurchId, loser.Id)).Active);
+    }
+
+    [Fact]
+    public async Task MergeRejectsSameMemberAndArchives()
+    {
+        var (_, _, merges, _, keeper, loser) = await MergeFixture();
+        await Assert.ThrowsAsync<ApiException>(() => merges.Merge(keeper.ChurchId, keeper.Id, keeper.Id, keeper.ETag, null, "", default));
+        var archived = await merges.Merge(keeper.ChurchId, keeper.Id, loser.Id, loser.ETag, null, "", default);
+        // Loser already archived → 409 on a second merge attempt.
+        var error = await Assert.ThrowsAsync<ApiException>(() => merges.Merge(keeper.ChurchId, keeper.Id, loser.Id, loser.ETag, null, "", default));
+        Assert.Equal("archived", error.Code);
+    }
+
+    [Fact]
+    public async Task MergePreviewReportsMovableAndSkipped()
+    {
+        var (_, _, merges, checkIns, keeper, loser) = await MergeFixture();
+        await checkIns.CheckIn(keeper.ChurchId, "occurrence", keeper.Id);   // overlap
+        await checkIns.CheckIn(keeper.ChurchId, "occurrence", loser.Id);    // overlap
+        var preview = await merges.Preview(keeper.ChurchId, keeper.Id, loser.Id);
+        Assert.Equal(1, preview.KeeperCheckIns);
+        Assert.Equal(1, preview.LoserCheckIns);
+        Assert.Equal(0, preview.Movable);
+        Assert.Equal(1, preview.Skipped);
+    }
+
+
     [Fact]
     public async Task CheckInIsAtomicAndPreservesHistoricalGroups()
     {
