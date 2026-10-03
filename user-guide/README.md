@@ -1,4 +1,4 @@
-# JChurch User Guide
+# Welcome
 
 Welcome to the JChurch app — the member directory, event check-in, and attendance
 reporting tool for your church. This guide walks you through each task,
