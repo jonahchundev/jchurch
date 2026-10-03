@@ -53,6 +53,7 @@ public static class Configuration
         services.AddSingleton<MemberCsvService>();
         services.AddSingleton<GroupCsvService>();
         services.AddSingleton<UserService>();
+        services.AddSingleton<MemberMergeService>();
         return services;
     }
 }

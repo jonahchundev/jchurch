@@ -8,6 +8,7 @@ namespace JChurch.Functions.Api;
 internal sealed record MemberImageUpload(string ContentType = "", string Data = "");
 internal sealed record MemberImportRequest(MemberImportRow[] Rows);
 internal sealed record GroupImportRequest(GroupImportRow[] Rows);
+internal sealed record MemberMergeRequest(string LoserId = "", string LoserEtag = "", string KeeperEtag = "", Member? KeeperUpdate = null);
 
 internal static class RequestBodies
 {
@@ -46,6 +47,35 @@ internal static class RequestBodies
             return (T)(object)(church with { NewMemberDaysSpecified = seen.Contains("newMemberDays") });
         if (input is Member member)
             return (T)(object)(member with { ScanCodeSpecified = seen.Contains("scanCode"), ScanCodeFormatSpecified = seen.Contains("scanCodeFormat") });
+        return input;
+    }
+
+    internal static async Task<MemberMergeRequest> MergeBody(HttpRequestData request, CancellationToken cancellationToken)
+    {
+        if (!request.Headers.TryGetValues("Content-Type", out var types) || !types.Any(type => type.Split(';')[0].Trim().Equals("application/json", StringComparison.OrdinalIgnoreCase)))
+            throw new ApiException(415, "unsupported_media_type", "Use application/json.");
+        using var buffer = new MemoryStream();
+        var chunk = new byte[8192];
+        int count;
+        while ((count = await request.Body.ReadAsync(chunk, cancellationToken)) > 0)
+        {
+            if (buffer.Length + count > 65536) throw new ApiException(413, "body_too_large", "Maximum request body is 64 KiB.");
+            await buffer.WriteAsync(chunk.AsMemory(0, count), cancellationToken);
+        }
+        using var document = JsonDocument.Parse(buffer.ToArray());
+        if (document.RootElement.ValueKind != JsonValueKind.Object) throw new JsonException();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var property in document.RootElement.EnumerateObject())
+            if (!seen.Add(property.Name)) throw new JsonException();
+        var input = document.RootElement.Deserialize<MemberMergeRequest>(Json.Options) ?? throw new JsonException();
+        if (string.IsNullOrWhiteSpace(input.LoserId)) throw new ApiException(400, "validation_failed", "loserId is required.");
+        // Reuse the member omission trackers so keeperUpdate's scan-code handling matches a normal member save.
+        if (input.KeeperUpdate is { } update && document.RootElement.TryGetProperty("keeperUpdate", out var updateElement))
+        {
+            var updateSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var property in updateElement.EnumerateObject()) updateSeen.Add(property.Name);
+            input = input with { KeeperUpdate = update with { ScanCodeSpecified = updateSeen.Contains("scanCode"), ScanCodeFormatSpecified = updateSeen.Contains("scanCodeFormat") } };
+        }
         return input;
     }
 

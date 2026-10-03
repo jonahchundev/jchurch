@@ -73,6 +73,12 @@ public interface IRepository<T> where T : Document
     // Physically deletes every document for churchId in this repository's backing container (all kinds, if the container is shared).
     Task Purge(string churchId, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("Purge requires a supported repository implementation.");
+    // Atomically deletes the loser's receipt and creates the keeper's receipt in the same occurrence partition,
+    // preserving the occurrence's active check-in count. Attendance-only. The keeper document supplies its own Id,
+    // OccurrenceId, and payload; CreatedOn/UpdatedOn are server-stamped. Throws 404 if the loser receipt is missing,
+    // 412 if loserEtag is stale, 409 if the keeper receipt already exists.
+    Task<T> Transfer(string churchId, string loserId, string loserEtag, T keeper, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("Transfer requires an attendance repository.");
 }
 
 public static class Cursor

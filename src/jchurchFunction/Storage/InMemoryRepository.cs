@@ -161,6 +161,27 @@ public sealed class InMemoryRepository<T> : IRepository<T> where T : Document
         }
     }
 
+    public Task<T> Transfer(string churchId, string loserId, string loserEtag, T keeper, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (typeof(T) != typeof(Attendance)) throw new NotSupportedException("Transfer requires an attendance repository.");
+        var keeperAttendance = (Attendance)(Document)keeper;
+        var loserKey = (churchId, keeperAttendance.OccurrenceId, loserId);
+        lock (gate)
+        {
+            if (!documents.TryGetValue(loserKey, out var loser)) throw new ApiException(404, "not_found", "The check-in to move was not found.");
+            if (string.IsNullOrEmpty(loserEtag) || loserEtag != loser.ETag) throw new ApiException(412, "stale_version", "ETag is stale.");
+            var keeperKey = Key(keeper);
+            if (documents.ContainsKey(keeperKey)) throw new ApiException(409, "already_exists", "The kept member already has a check-in for this occurrence.");
+            var now = timeProvider.GetUtcNow();
+            Document stamped = (Document)keeper with { CreatedOn = now, UpdatedOn = now };
+            var stored = (T)stamped with { ETag = $"\"{Guid.NewGuid():N}\"" };
+            documents.Remove(loserKey);
+            documents.Add(keeperKey, Json.Clone(stored));
+            return Task.FromResult(stored);
+        }
+    }
+
     public Task Purge(string churchId, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
