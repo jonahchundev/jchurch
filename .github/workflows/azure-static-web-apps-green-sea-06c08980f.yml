@@ -5,7 +5,9 @@ on:
     branches:
       - main
     paths:
-      - 'src/JcChurchMobile/**' 
+      - 'src/JcChurchMobile/**'
+      - 'user-guide/**'
+      - '.github/workflows/azure-static-web-apps-green-sea-06c08980f.yml'
   # pull_request:
   #   types: [opened, synchronize, reopened, closed]
   #   branches:
