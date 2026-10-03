@@ -2,6 +2,9 @@ import { useEffect, useState } from "react";
 import { useRouter } from "expo-router";
 import { Button, Field, Notice, Page, styles } from "../ui";
 import { useAuth } from "../auth/AuthContext";
+import { api } from "../api/hooks";
+import { ApiError } from "../api/client";
+import type { User } from "../api/types";
 import {
   decodeGoogleIdToken,
   googleTokensFromResponse,
@@ -32,6 +35,21 @@ export default function Login() {
           const profile = decodeGoogleIdToken(tokens?.idToken);
           // Verify the nonce we sent is echoed back in the ID token.
           if (tokens && profile && profile.nonce && profile.nonce === googleNonce) {
+            // Only pre-provisioned users may sign in: a matching user record must exist.
+            const email = profile.email?.trim().toLowerCase();
+            let provisioned = false;
+            if (email) {
+              try {
+                const record = await api.get<User>(`/users/${encodeURIComponent(email)}`);
+                provisioned = record.active !== false;
+              } catch (lookup) {
+                if (!(lookup instanceof ApiError && lookup.status === 404)) throw lookup;
+              }
+            }
+            if (!provisioned) {
+              setError("This Google account hasn't been invited. Ask an administrator to add you first.");
+              return;
+            }
             const accepted = await completeGoogleSignIn(profile, tokens);
             if (accepted) {
               router.replace("/");
