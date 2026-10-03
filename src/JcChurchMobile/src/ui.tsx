@@ -108,42 +108,31 @@ export function IconButton({
     </Pressable>
   );
 }
-// Shows the signed-in user's name with a settings gear; tapping either opens Settings.
+// Avatar-only button that opens Settings; the name is used only for the
+// accessibility label and web tooltip.
 export function UserChip({
   name,
-  subtitle,
   picture,
   onPress,
 }: {
-  name: string;
-  subtitle?: string;
+  name?: string;
   picture?: string;
   onPress: () => void;
 }) {
+  const label = name ? `${name} — Settings` : "Settings";
   return (
     <Pressable
-      {...(Platform.OS === "web" ? { title: subtitle ? `${name} (${subtitle})` : name } : {})}
+      {...(Platform.OS === "web" ? { title: label } : {})}
       accessibilityRole="button"
-      accessibilityLabel="Settings"
+      accessibilityLabel={label}
       onPress={onPress}
       style={({ pressed }) => [styles.userChip, pressed && styles.pressed]}
     >
       {picture ? (
         <Image source={{ uri: picture }} style={styles.userChipAvatar} accessibilityElementsHidden />
       ) : (
-        <Icon name="person-outline" size={18} />
+        <Icon name="person-outline" size={20} />
       )}
-      <View style={{ flexShrink: 1 }}>
-        <Text numberOfLines={1} style={styles.userChipText}>
-          {name}
-        </Text>
-        {!!subtitle && (
-          <Text numberOfLines={1} style={styles.userChipSubtitle}>
-            {subtitle}
-          </Text>
-        )}
-      </View>
-      <Icon name="settings-outline" color={colors.muted} />
     </Pressable>
   );
 }
@@ -1007,16 +996,13 @@ export const styles = StyleSheet.create({
     borderRadius: 8,
   },
   userChip: {
-    flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    maxWidth: 260,
-    minHeight: 48,
-    paddingHorizontal: 4,
+    justifyContent: "center",
+    width: 40,
+    height: 40,
+    borderRadius: 20,
   },
-  userChipAvatar: { width: 28, height: 28, borderRadius: 14 },
-  userChipText: { color: colors.ink, fontFamily: "Manrope_600SemiBold", fontSize: 15, flexShrink: 1 },
-  userChipSubtitle: { color: colors.muted, fontFamily: "Manrope_400Regular", fontSize: 11 },
+  userChipAvatar: { width: 32, height: 32, borderRadius: 16 },
   pressed: { opacity: 0.7 },
   search: {
     flexDirection: "row",

@@ -22,9 +22,12 @@ export default function ChurchLayout() {
   const client = useQueryClient();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
-  const { roleInfo } = useRole();
-  // Only one church to go back to — no need for the switch control.
-  const singleChurch = roleInfo.kind === "provisioned" && roleInfo.churchIds.length === 1;
+  const { roleReady, roleInfo } = useRole();
+  // Hide the switch control until the role resolves (it briefly reports
+  // "unprovisioned" while the user record loads), and when there is only one
+  // church to go back to anyway.
+  const hideSwitch =
+    !roleReady || (roleInfo.kind === "provisioned" && roleInfo.churchIds.length === 1);
   const query = useQuery({
     queryKey: [churchPath(churchId)],
     queryFn: ({ signal }) => api.get<Church>(churchPath(churchId), signal),
@@ -58,7 +61,7 @@ export default function ChurchLayout() {
         headerTitleStyle: { fontFamily: "Manrope_700Bold", fontSize: 17 },
         headerStyle: { backgroundColor: colors.paper },
         headerLeft: () =>
-          singleChurch ? null : (
+          hideSwitch ? null : (
             <IconButton
               icon="swap-horizontal-outline"
               label="Switch church"
@@ -69,7 +72,6 @@ export default function ChurchLayout() {
           <View style={{ marginRight: 8 }}>
             <UserChip
               name={user?.name ?? user?.email ?? (user?.provider === "google" ? "Google account" : "Admin")}
-              subtitle={user?.name && user.email ? user.email : undefined}
               picture={user?.picture}
               onPress={() =>
                 router.push({
