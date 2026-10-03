@@ -202,6 +202,18 @@ resource cosmosAccess 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments@
   }
 }
 
+// Grants a developer interactive Cosmos DB data-plane access (Data Explorer, local runs).
+resource cosmosUserAccess 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments@2024-11-15' = {
+  parent: cosmos
+  name: guid(cosmos.id, 'a174c4cc-260e-4f91-9f86-68c4ee93edee', 'data-contributor')
+  properties: {
+    principalId: 'a174c4cc-260e-4f91-9f86-68c4ee93edee'
+    principalType: 'User'
+    roleDefinitionId: '${cosmos.id}/sqlRoleDefinitions/00000000-0000-0000-0000-000000000002'
+    scope: '${cosmos.id}/dbs/${database.name}'
+  }
+}
+
 var storageRoles = [
   'b7e6dc6d-f1e8-4753-8033-0f276bb0955b'
   '974c5e8b-45b9-4653-ba55-5f855dd0fb88'

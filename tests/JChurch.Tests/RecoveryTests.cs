@@ -25,7 +25,7 @@ public sealed class RecoveryTests
     public async Task TimeoutAfterSaveReturnsExistingReceiptOnRetry()
     {
         var memory = ServiceTests.Memory();
-        var repositories = new Repositories(memory.Churches, memory.Groups, memory.Members, memory.Fields, memory.Events, memory.Occurrences, new TimeoutAfterSave(memory.Attendance));
+        var repositories = new Repositories(memory.Churches, memory.Groups, memory.Members, memory.Fields, memory.Events, memory.Occurrences, new TimeoutAfterSave(memory.Attendance), memory.Users);
         var clock = new TestClock(DateTimeOffset.Parse("2026-09-20T10:00:00Z"));
         await Seed(repositories, "church", clock.Now);
         var service = new CheckInService(repositories, new DirectoryService(repositories, clock), clock);

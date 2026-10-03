@@ -5,6 +5,7 @@ using System.Text.Json;
 using JChurch.Domain;
 using JChurch.Services;
 using JChurch.Storage;
+using User = JChurch.Domain.User;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -12,7 +13,7 @@ using Microsoft.Extensions.Logging;
 
 namespace JChurch.Functions;
 
-public sealed class ChurchApi(Repositories repositories, DirectoryService directory, EventService events, CheckInService checkIns, MemberCsvService memberCsv, GroupCsvService groupCsv, ILogger<ChurchApi> logger)
+public sealed class ChurchApi(Repositories repositories, DirectoryService directory, EventService events, CheckInService checkIns, MemberCsvService memberCsv, GroupCsvService groupCsv, UserService users, ILogger<ChurchApi> logger)
 {
     private sealed record Result(int Status, object? Body = null, string? Location = null, bool RawText = false);
     private sealed record MemberImportRequest(MemberImportRow[] Rows);
@@ -75,7 +76,8 @@ public sealed class ChurchApi(Repositories repositories, DirectoryService direct
             using var stream = File.OpenRead(Path.Combine(AppContext.BaseDirectory, "openapi.json"));
             return new(200, await JsonSerializer.DeserializeAsync<JsonElement>(stream, cancellationToken: cancellationToken));
         }
-        if (route.Length == 0 || route[0] != "churches") throw new ApiException(404, "not_found", "Route not found.");
+        if (route.Length == 0 || (route[0] != "churches" && route[0] != "users")) throw new ApiException(404, "not_found", "Route not found.");
+        if (route[0] == "users") return await Users(request, route, cancellationToken);
         if (route.Length <= 2) return await Resource<Church>(request, route.Length == 2 ? route[1] : "", route.Length == 2 ? route[1] : null, cancellationToken);
         var churchId = route[1];
         await directory.Get<Church>(churchId, churchId, cancellationToken: cancellationToken);
@@ -166,6 +168,72 @@ public sealed class ChurchApi(Repositories repositories, DirectoryService direct
         }
         throw new ApiException(404, "not_found", "Route not found.");
     }
+
+    private async Task<Result> Users(HttpRequestData request, string[] route, CancellationToken cancellationToken)
+    {
+        var email = route.Length >= 2 ? Uri.UnescapeDataString(route[1]) : null;
+        if (route.Length == 1)
+        {
+            if (request.Method == "GET")
+            {
+                var filters = ParseUserQuery(request.Query);
+                var page = await repositories.Users.Search(filters.Query, cancellationToken);
+                var items = page.Items.Where(user =>
+                    (filters.Role is null || user.Role == filters.Role) &&
+                    (filters.Status is null || user.Status == filters.Status) &&
+                    (filters.ChurchId is null || user.ChurchIds.Contains(filters.ChurchId))).ToArray();
+                return new(200, new Page<User>(items, items.Length == page.Items.Count ? page.ContinuationToken : null));
+            }
+            if (request.Method == "POST")
+            {
+                var input = await Body<User>(request, cancellationToken);
+                var created = await users.Create(input, cancellationToken);
+                return new(201, created, $"{request.Url.AbsolutePath.TrimEnd('/')}/{Uri.EscapeDataString(created.Email)}");
+            }
+            throw MethodNotAllowed();
+        }
+        if (route.Length == 2)
+        {
+            if (request.Method == "GET") return new(200, await users.Get(email!, cancellationToken));
+            if (request.Method == "PUT")
+            {
+                var input = await Body<User>(request, cancellationToken);
+                return new(200, await users.Replace(input, email!, IfMatch(request), cancellationToken));
+            }
+            if (request.Method == "DELETE")
+            {
+                await users.Archive(email!, IfMatch(request), cancellationToken);
+                return new(204);
+            }
+            throw MethodNotAllowed();
+        }
+        if (route.Length == 3 && route[2] == "claim" && request.Method == "POST")
+            return new(200, await users.Claim(email!, cancellationToken));
+        throw new ApiException(404, "not_found", "Route not found.");
+    }
+
+    private static UserQuery ParseUserQuery(NameValueCollection values)
+    {
+        var allowed = new[] { "search", "role", "status", "churchId", "includeArchived", "pageSize", "continuationToken" };
+        foreach (var key in values.AllKeys)
+            if (key is null || !allowed.Contains(key) || values.GetValues(key)?.Length != 1) throw new ApiException(400, "invalid_query", "Unknown or repeated query parameter.");
+        var role = values["role"];
+        if (role is not null && role is not ("global-admin" or "church-admin" or "user")) throw new ApiException(400, "invalid_query", "role must be global-admin, church-admin, or user.");
+        var status = values["status"];
+        if (status is not null && status is not ("invited" or "active")) throw new ApiException(400, "invalid_query", "status must be invited or active.");
+        bool Flag(string name) => values[name] is not { } value ? false : bool.TryParse(value, out var parsed) ? parsed : throw new ApiException(400, "invalid_query", $"{name} must be true or false.");
+        var query = new Query
+        {
+            ChurchId = User.GlobalPartition, Search = values["search"],
+            ActiveOnly = !Flag("includeArchived"),
+            ContinuationToken = values["continuationToken"],
+            PageSize = values["pageSize"] is not { } size ? 50 : int.TryParse(size, out var sizeParsed) ? sizeParsed : throw new ApiException(400, "invalid_query", "Invalid pageSize.")
+        };
+        query.Validate();
+        return new UserQuery(query, role, status, values["churchId"]);
+    }
+
+    private sealed record UserQuery(Query Query, string? Role, string? Status, string? ChurchId);
 
     private async Task<Result> Resource<T>(HttpRequestData request, string churchId, string? id, CancellationToken cancellationToken) where T : Document
     {

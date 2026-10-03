@@ -1,15 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { View } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { api, churchPath, useDebounce, useList } from "../api/hooks";
+import { api, churchPath, useAll, useDebounce, useList } from "../api/hooks";
 import { ApiError, message } from "../api/client";
 import type { Church } from "../api/types";
 import { churchSchema } from "../domain";
 import { useAuth } from "../auth/AuthContext";
+import { useRole } from "../auth/RoleContext";
+import { canManageUsers, filterChurches } from "../auth/roles";
 import {
   Button,
   Field,
@@ -24,23 +26,56 @@ import {
   Select,
   styles,
   Toggle,
+  UserChip,
 } from "../ui";
 
 const lastKey = "jchurch:last-church-id";
 export default function Churches({ manage = false }: { manage?: boolean }) {
   const router = useRouter();
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
+  const { roleReady, roleInfo } = useRole();
   const { selected } = useLocalSearchParams<{ selected?: string }>();
   const client = useQueryClient();
   const [search, setSearch] = useState("");
   const [last, setLast] = useState<string | null>(null);
   const [editing, setEditing] = useState<Church | "new" | null>(null);
   const [notice, setNotice] = useState("");
-  const query = useList<Church>("/churches", {
-    search: useDebounce(search),
+  const isGlobalAdmin = roleInfo.kind === "global-admin";
+  const debouncedSearch = useDebounce(search);
+  // Global admins keep the paginated directory; other roles load all and filter client-side.
+  const listQuery = useList<Church>("/churches", {
+    search: debouncedSearch,
     ...(manage ? { includeArchived: true } : {}),
   });
-  const churches = query.data?.pages.flatMap((page) => page.items) ?? [];
+  const allQuery = useAll<Church>("/churches", manage ? { includeArchived: true } : {});
+  const usePaged = isGlobalAdmin;
+  const baseChurches = usePaged
+    ? (listQuery.data?.pages.flatMap((page) => page.items) ?? [])
+    : (allQuery.data ?? []);
+  const churches = usePaged ? baseChurches : filterChurches(baseChurches, roleInfo).filter((church) =>
+    debouncedSearch ? church.name.toLowerCase().includes(debouncedSearch.toLowerCase()) : true,
+  );
+  const query = usePaged ? listQuery : allQuery;
+  const unprovisioned = roleReady && roleInfo.kind === "unprovisioned";
+  const singleChurchUser = roleInfo.kind === "provisioned" && roleInfo.churchIds.length === 1;
+  const displayName = user?.name ?? user?.email ?? (user?.provider === "google" ? "Google account" : "Admin");
+  async function handleLogout() {
+    await client.cancelQueries();
+    client.clear();
+    await logout();
+    router.replace("/login");
+  }
+  const autoSelected = useRef(false);
+  useEffect(() => {
+    // Users tied to exactly one church skip the chooser entirely.
+    if (manage || autoSelected.current || !roleReady || !allQuery.isSuccess) return;
+    const assigned = filterChurches(allQuery.data ?? [], roleInfo);
+    if (assigned.length === 1 && assigned[0]) {
+      autoSelected.current = true;
+      void select(assigned[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [manage, roleReady, allQuery.isSuccess, allQuery.data, roleInfo]);
   useEffect(() => {
     void AsyncStorage.getItem(lastKey)
       .then(setLast)
@@ -52,47 +87,48 @@ export default function Churches({ manage = false }: { manage?: boolean }) {
     void AsyncStorage.setItem(lastKey, church.id).catch(() => {});
     router.push(`/church/${church.id}`);
   }
+  // While the single-church auto-select is routing, render a quiet loading page
+  // instead of flashing the chooser.
+  const autoSelecting = !manage && autoSelected.current;
   return (
     <Page
-      title={manage ? "Manage churches" : "Choose your church"}
+      title={autoSelecting ? "Loading your church" : manage ? "Manage churches" : "Choose your church"}
       eyebrow={manage ? "Settings" : "Church directory"}
       onRefresh={() => void query.refetch()}
       refreshing={query.isRefetching}
       actions={
         manage ? (
-          <>
+          isGlobalAdmin ? (
             <IconButton
               icon="add-outline"
               label="Create church"
               onPress={() => setEditing("new")}
             />
-            <IconButton
-              icon="log-out-outline"
-              label="Log out"
-              onPress={() => {
-                void (async () => {
-                  await client.cancelQueries();
-                  client.clear();
-                  await logout();
-                  router.replace("/login");
-                })();
-              }}
-            />
-          </>
+          ) : undefined
         ) : (
-          <IconButton
-            icon="settings-outline"
-            label="Settings"
-            onPress={() => router.push("/settings")}
-          />
+          <UserChip name={displayName} subtitle={user?.name && user.email ? user.email : undefined} picture={user?.picture} onPress={() => router.push("/settings")} />
         )
       }
     >
-      <SearchBox
-        value={search}
-        onChange={setSearch}
-        placeholder="Search churches"
-      />
+      {!autoSelecting && !(manage && singleChurchUser) && (
+        <SearchBox
+          value={search}
+          onChange={setSearch}
+          placeholder="Search churches"
+        />
+      )}
+      {manage && user && (
+        <Row
+          title={displayName}
+          subtitle={user.name && user.email ? user.email : user.provider === "google" ? "Signed in with Google" : "Temporary admin login"}
+          icon={user.provider === "google" ? "logo-google" : "person-outline"}
+          trailing={
+            <Button danger onPress={() => void handleLogout()}>
+              Log out
+            </Button>
+          }
+        />
+      )}
       {manage && selected && (
         <Row
           title="Manage custom fields"
@@ -101,41 +137,56 @@ export default function Churches({ manage = false }: { manage?: boolean }) {
           onPress={() => router.navigate(`/church/${selected}/custom-fields`)}
         />
       )}
+      {manage && canManageUsers(roleInfo) && (
+        <Row
+          title="Manage users"
+          subtitle="Invite users and assign church access"
+          icon="people-outline"
+          onPress={() => router.push("/users")}
+        />
+      )}
       {!!notice && <Notice>{notice}</Notice>}
+      {unprovisioned && (
+        <Notice>
+          Your account is not associated with any church yet. Ask an administrator to invite you.
+        </Notice>
+      )}
       <QueryState
-        pending={query.isPending}
+        pending={!roleReady || query.isPending || autoSelecting}
         error={query.error}
         empty={!churches.length}
-        emptyText={manage ? "No churches yet." : "No churches found."}
+        emptyText={unprovisioned ? "No churches assigned." : manage ? "No churches yet." : "No churches found."}
         onRetry={() => void query.refetch()}
       />
-      <View>
-        {churches.map((church) => (
-          <Row
-            key={church.id}
-            title={church.name}
-            icon="business-outline"
-            badge={church.active === false ? "Archived" : last === church.id ? "Last selected" : undefined}
-            subtitle={manage ? "Church settings" : undefined}
-            onPress={() => (manage ? setEditing(church) : void select(church))}
-          />
-        ))}
-      </View>
-      {query.hasNextPage && (
+      {!autoSelecting && (
+        <View>
+          {churches.map((church) => (
+            <Row
+              key={church.id}
+              title={church.name}
+              icon="business-outline"
+              badge={church.active === false ? "Archived" : last === church.id ? "Last selected" : undefined}
+              subtitle={manage ? "Church settings" : undefined}
+              onPress={() => (manage ? setEditing(church) : void select(church))}
+            />
+          ))}
+        </View>
+      )}
+      {!autoSelecting && isGlobalAdmin && listQuery.hasNextPage && (
         <Button
           secondary
-          busy={query.isFetchingNextPage}
-          onPress={() => void query.fetchNextPage()}
+          busy={listQuery.isFetchingNextPage}
+          onPress={() => void listQuery.fetchNextPage()}
         >
           Load more churches
         </Button>
       )}
-      {manage && (
+      {manage && isGlobalAdmin && (
         <Button icon="add-outline" onPress={() => setEditing("new")}>
           Create church
         </Button>
       )}
-      {editing && (
+      {editing && isGlobalAdmin && (
         <ChurchEditor
           church={editing === "new" ? undefined : editing}
           onClose={() => setEditing(null)}

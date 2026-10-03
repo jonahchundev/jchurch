@@ -9,6 +9,7 @@ import {
 } from "react";
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -104,6 +105,45 @@ export function IconButton({
       style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
     >
       <Icon name={icon} />
+    </Pressable>
+  );
+}
+// Shows the signed-in user's name with a settings gear; tapping either opens Settings.
+export function UserChip({
+  name,
+  subtitle,
+  picture,
+  onPress,
+}: {
+  name: string;
+  subtitle?: string;
+  picture?: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      {...(Platform.OS === "web" ? { title: subtitle ? `${name} (${subtitle})` : name } : {})}
+      accessibilityRole="button"
+      accessibilityLabel="Settings"
+      onPress={onPress}
+      style={({ pressed }) => [styles.userChip, pressed && styles.pressed]}
+    >
+      {picture ? (
+        <Image source={{ uri: picture }} style={styles.userChipAvatar} accessibilityElementsHidden />
+      ) : (
+        <Icon name="person-outline" size={18} />
+      )}
+      <View style={{ flexShrink: 1 }}>
+        <Text numberOfLines={1} style={styles.userChipText}>
+          {name}
+        </Text>
+        {!!subtitle && (
+          <Text numberOfLines={1} style={styles.userChipSubtitle}>
+            {subtitle}
+          </Text>
+        )}
+      </View>
+      <Icon name="settings-outline" color={colors.muted} />
     </Pressable>
   );
 }
@@ -878,6 +918,13 @@ export const styles = StyleSheet.create({
     lineHeight: 24,
     color: colors.ink,
   },
+  dividerLabel: {
+    fontFamily: "Manrope_600SemiBold",
+    fontSize: 13,
+    color: colors.muted,
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
   muted: { color: colors.muted },
   small: { fontSize: 13, lineHeight: 20 },
   actions: {
@@ -919,6 +966,17 @@ export const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 8,
   },
+  userChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    maxWidth: 260,
+    minHeight: 48,
+    paddingHorizontal: 4,
+  },
+  userChipAvatar: { width: 28, height: 28, borderRadius: 14 },
+  userChipText: { color: colors.ink, fontFamily: "Manrope_600SemiBold", fontSize: 15, flexShrink: 1 },
+  userChipSubtitle: { color: colors.muted, fontFamily: "Manrope_400Regular", fontSize: 11 },
   pressed: { opacity: 0.7 },
   search: {
     flexDirection: "row",

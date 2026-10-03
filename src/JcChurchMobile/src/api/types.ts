@@ -38,3 +38,17 @@ export type MemberImportResult = Schemas["MemberImportResult"];
 export type GroupImportRow = Schemas["GroupImportRow"];
 export type GroupImportRowResult = Schemas["GroupImportRowResult"];
 export type GroupImportResult = Schemas["GroupImportResult"];
+
+// User-management types are hand-authored to mirror the backend User document
+// (UserInput schema); kept vitest-importable (no react-native imports here).
+export type AppRole = "global-admin" | "church-admin" | "user";
+export type UserStatus = "invited" | "active";
+export type UserInput = {
+  email: string;
+  role: AppRole;
+  churchIds: string[];
+  displayName?: string | null;
+  invitedBy?: string;
+};
+export type User = Document &
+  UserInput & { status: UserStatus; claimedOn?: string | null };

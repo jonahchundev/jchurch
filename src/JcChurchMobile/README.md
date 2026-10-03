@@ -6,14 +6,44 @@ Expo React Native client for iOS and Android, with a browser preview for local d
 
 Use synthetic data only. The existing API is unauthenticated; selecting a church is not access control. Authentication, staff permissions, church-management permissions, and approved backend access remain release prerequisites. This project does not change backend deployment or network safeguards.
 
-The staff UI currently has a temporary client-only login configured through
-`EXPO_PUBLIC_ADMIN_USERNAME` and `EXPO_PUBLIC_ADMIN_PASSWORD` (the checked-in development example
-uses `admin` / `abc123`). Login persists locally until Logout is selected in Settings. Public
-registration pages remain accessible without logging in.
+The staff UI has two sign-in options, both client-side only:
 
-This is **not security**: Expo public environment values are embedded in the client bundle and the
-anonymous API remains directly callable without the app. Do not use this gate with real member
-data or represent it as production authentication.
+1. **Google sign-in** — "Continue with Google" uses `expo-auth-session` (Authorization Code +
+   PKCE) directly against Google. Configure `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` (and optionally
+   `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` / `EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID` for native). The
+   button is hidden when the platform's client ID is not set. Signed-in Google profile (name /
+   email) is shown in Settings. See `Plans/20261002-google-login-cr1.md` for Google Cloud
+   Console setup steps.
+2. **Temporary admin login** — fallback credentials via `EXPO_PUBLIC_ADMIN_USERNAME` and
+   `EXPO_PUBLIC_ADMIN_PASSWORD` (the checked-in development example uses `admin` / `abc123`).
+
+Either method persists locally until Logout is selected in Settings. Public registration and
+update pages remain accessible without signing in.
+
+### Roles and user management
+
+The app has three roles, resolved client-side from the signed-in identity:
+
+- **Global admin** — the temporary `admin` login is a built-in global admin with no stored
+  record; it sees all churches and can invite anyone. Global admins are not created via the UI.
+- **Church admin** — sees only their assigned churches; can invite users and church admins, but
+  only associate them with churches the church admin belongs to.
+- **User** — sees only their assigned churches; no management UI.
+
+Admins pre-provision accounts on the Settings → Manage users screen by entering an email, role,
+and church assignments. No email is sent. When that person later signs in with Google (matching
+email), the app calls `POST /users/{email}/claim` to flip their record from **Invited** to
+**Active** (shown as a badge in the user list). Google sign-ins with no matching record see an
+empty church list with an "ask an administrator to invite you" notice.
+
+The backend `/api/v1/users` endpoints remain anonymous: they validate structure (role values,
+church existence, email format) but not the caller. Role rules are enforced in the client only
+until backend authorization lands.
+
+This is **not security**: Expo public environment values are embedded in the client bundle, the
+anonymous API remains directly callable without the app, and Google ID-token signatures are not
+verified client-side. Do not use this gate with real member data or represent it as production
+authentication — backend token validation is a deferred follow-up.
 
 ## Run
 

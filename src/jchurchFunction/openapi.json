@@ -6,6 +6,20 @@
   "paths": {
     "/health": { "get": { "operationId": "health", "responses": { "200": { "description": "Process healthy, not a database readiness probe" } } } },
     "/openapi.json": { "get": { "operationId": "openapi", "responses": { "200": { "description": "This specification" } } } },
+    "/users": {
+      "get": { "operationId": "listUsers", "description": "User management is anonymous and structural-only; role rules are client-enforced. Results are filtered in memory after the base page query.", "parameters": [{ "$ref": "#/components/parameters/search" }, { "$ref": "#/components/parameters/userRole" }, { "$ref": "#/components/parameters/userStatus" }, { "$ref": "#/components/parameters/userChurchId" }, { "$ref": "#/components/parameters/pageSize" }, { "$ref": "#/components/parameters/continuationToken" }, { "$ref": "#/components/parameters/includeArchived" }], "responses": { "200": { "$ref": "#/components/responses/Page" }, "default": { "$ref": "#/components/responses/Problem" } } },
+      "post": { "operationId": "createUser", "description": "Pre-provision an invited user. Id and email are the normalized lowercase email; duplicate returns 409. New users start as invited.", "requestBody": { "$ref": "#/components/requestBodies/User" }, "responses": { "201": { "$ref": "#/components/responses/Created" }, "default": { "$ref": "#/components/responses/Problem" } } }
+    },
+    "/users/{email}": {
+      "parameters": [{ "$ref": "#/components/parameters/email" }],
+      "get": { "operationId": "getUser", "responses": { "200": { "$ref": "#/components/responses/Document" }, "default": { "$ref": "#/components/responses/Problem" } } },
+      "put": { "operationId": "updateUser", "description": "Update role, churchIds and displayName. Email and status are immutable; status changes only via claim.", "parameters": [{ "$ref": "#/components/parameters/IfMatch" }], "requestBody": { "$ref": "#/components/requestBodies/User" }, "responses": { "200": { "$ref": "#/components/responses/Document" }, "default": { "$ref": "#/components/responses/Problem" } } },
+      "delete": { "operationId": "archiveUser", "parameters": [{ "$ref": "#/components/parameters/IfMatch" }], "responses": { "204": { "description": "Archived; the user record is retained" }, "default": { "$ref": "#/components/responses/Problem" } } }
+    },
+    "/users/{email}/claim": {
+      "parameters": [{ "$ref": "#/components/parameters/email" }],
+      "post": { "operationId": "claimUser", "description": "Idempotent invited→active transition called by the client after first matching sign-in. Stamps claimedOn on first claim; already-active returns 200. 404 unknown user, 409 archived.", "responses": { "200": { "$ref": "#/components/responses/Document" }, "default": { "$ref": "#/components/responses/Problem" } } }
+    },
     "/churches": {
       "get": { "operationId": "listChurches", "parameters": [{ "$ref": "#/components/parameters/search" }, { "$ref": "#/components/parameters/pageSize" }, { "$ref": "#/components/parameters/continuationToken" }, { "$ref": "#/components/parameters/includeArchived" }], "responses": { "200": { "$ref": "#/components/responses/Page" }, "default": { "$ref": "#/components/responses/Problem" } } },
       "post": { "operationId": "createChurch", "requestBody": { "$ref": "#/components/requestBodies/Church" }, "responses": { "201": { "$ref": "#/components/responses/Created" }, "default": { "$ref": "#/components/responses/Problem" } } }
@@ -132,6 +146,10 @@
     "parameters": {
       "churchId": { "name": "churchId", "in": "path", "required": true, "schema": { "type": "string" } },
       "id": { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } },
+      "email": { "name": "email", "in": "path", "required": true, "schema": { "type": "string" }, "description": "URL-encoded email address; normalized to lowercase." },
+      "userRole": { "name": "role", "in": "query", "schema": { "type": "string", "enum": ["global-admin", "church-admin", "user"] } },
+      "userStatus": { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["invited", "active"] } },
+      "userChurchId": { "name": "churchId", "in": "query", "schema": { "type": "string" }, "description": "Filter users assigned to this church." },
       "IfMatch": { "name": "If-Match", "in": "header", "required": true, "description": "Exact _etag from the last read; missing returns 428 and stale returns 412.", "schema": { "type": "string" } },
       "search": { "name": "search", "in": "query", "schema": { "type": "string", "maxLength": 100 }, "description": "Case-insensitive name substring." },
       "nameSort": { "name": "nameSort", "in": "query", "schema": { "type": "string", "enum": ["asc", "desc"], "default": "asc" }, "description": "Name order and tie-break direction; defaults to ascending." },
@@ -154,7 +172,8 @@
       "Group": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GroupInput" } } } },
       "Member": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MemberInput" } } } },
       "CustomField": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CustomFieldInput" } } } },
-      "Event": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EventInput" } } } }
+      "Event": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EventInput" } } } },
+      "User": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserInput" } } } }
     },
     "responses": {
       "ScanResult": { "description": "Confirmed attendance and minimal member identity", "content": { "application/json": { "schema": { "type": "object", "required": ["member", "receipt", "already"], "properties": { "member": { "$ref": "#/components/schemas/ScanMember" }, "receipt": { "$ref": "#/components/schemas/Document" }, "already": { "type": "boolean" } } } } } },
@@ -179,7 +198,8 @@
       "MemberImportResult": { "type": "object", "required": ["created", "updated", "failed", "results"], "properties": { "created": { "type": "integer" }, "updated": { "type": "integer" }, "failed": { "type": "integer" }, "results": { "type": "array", "items": { "$ref": "#/components/schemas/MemberImportRowResult" } } } },
       "GroupImportRow": { "type": "object", "additionalProperties": false, "description": "Blank Id creates a group; an Id matching an existing group updates it, otherwise a group is created with that Id.", "properties": { "id": { "type": "string", "nullable": true }, "name": { "type": "string", "nullable": true }, "parentName": { "type": "string", "nullable": true, "description": "Name of an active top-level group. Blank means this row is itself a top-level group. A parent row must appear before its children's rows in the same import call." } } },
       "GroupImportRowResult": { "type": "object", "required": ["row", "action"], "properties": { "row": { "type": "integer", "description": "1-based row number, header excluded." }, "id": { "type": "string", "nullable": true }, "action": { "type": "string", "enum": ["created", "updated", "error"] }, "errors": { "type": "array", "nullable": true, "items": { "type": "string" } } } },
-      "GroupImportResult": { "type": "object", "required": ["created", "updated", "failed", "results"], "properties": { "created": { "type": "integer" }, "updated": { "type": "integer" }, "failed": { "type": "integer" }, "results": { "type": "array", "items": { "$ref": "#/components/schemas/GroupImportRowResult" } } } }
+      "GroupImportResult": { "type": "object", "required": ["created", "updated", "failed", "results"], "properties": { "created": { "type": "integer" }, "updated": { "type": "integer" }, "failed": { "type": "integer" }, "results": { "type": "array", "items": { "$ref": "#/components/schemas/GroupImportRowResult" } } } },
+      "UserInput": { "type": "object", "additionalProperties": false, "required": ["email", "role"], "properties": { "email": { "type": "string", "format": "email", "maxLength": 254, "description": "Identity key; normalized to lowercase and immutable after creation." }, "role": { "type": "string", "enum": ["global-admin", "church-admin", "user"] }, "churchIds": { "type": "array", "maxItems": 100, "items": { "type": "string" }, "description": "Required for church-admin/user; must be empty for global-admin." }, "displayName": { "type": "string", "maxLength": 200, "nullable": true }, "invitedBy": { "type": "string", "maxLength": 254, "description": "Email of the inviting admin, or \"admin\" for the built-in global admin." }, "status": { "type": "string", "enum": ["invited", "active"], "readOnly": true, "description": "Server-managed; transitions only via the claim endpoint." }, "claimedOn": { "type": "string", "format": "date-time", "nullable": true, "readOnly": true } } }
     }
   }
 }

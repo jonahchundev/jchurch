@@ -31,10 +31,11 @@ function AppNavigator() {
         <Stack.Protected guard={authenticated}>
           <Stack.Screen name="index" options={{ title: "JChurch" }} />
           <Stack.Screen name="settings" options={{ title: "Settings" }} />
+          <Stack.Screen name="users" options={{ title: "Users" }} />
           <Stack.Screen name="church/[churchId]" options={{ headerShown: false }} />
         </Stack.Protected>
         <Stack.Protected guard={!authenticated}>
-          <Stack.Screen name="login" options={{ title: "Admin login" }} />
+          <Stack.Screen name="login" options={{ title: "Sign in" }} />
         </Stack.Protected>
         <Stack.Screen name="register/[churchId]/index" options={{ title: "Registration" }} />
         <Stack.Screen

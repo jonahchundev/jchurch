@@ -47,6 +47,18 @@ const pageBody = (
   continuationToken: string | null = null,
 ) => ({ items, continuationToken });
 
+// Staff workflows require an authenticated session. Seed the current session
+// key with an admin session (matches AuthContext's StoredSession shape) so
+// these tests reach protected routes without going through the login UI.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem(
+      "jchurch:auth-session:v1",
+      JSON.stringify({ provider: "admin" }),
+    );
+  });
+});
+
 test("settings manage groups creates subgroups and feeds member assignment labels", async ({ page }, testInfo) => {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
@@ -121,7 +133,7 @@ test("settings manage groups creates subgroups and feeds member assignment label
     await route.fulfill({ json: body });
   });
   await page.goto(`/church/${alpha.id}`);
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Settings" }).click();
   await page.getByRole("button", { name: /Manage groups/ }).click();
   await expect(page.getByRole("heading", { name: "Groups", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Add group", exact: true }).first().click();
@@ -748,7 +760,7 @@ test("church settings, members, sessions and duplicate-safe check-in", async ({
     await expect(
       page.getByRole("heading", { name: "Choose your church" }),
     ).toBeVisible();
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("button", { name: "Settings" }).click();
     await page
       .getByRole("button", { name: "Create church", exact: true })
       .last()
@@ -772,7 +784,7 @@ test("church settings, members, sessions and duplicate-safe check-in", async ({
     await page.goto("/");
     await page.getByRole("textbox", { name: "Search churches" }).fill(name);
     await page.getByRole("button", { name: new RegExp(name) }).click();
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("button", { name: "Settings" }).click();
     await page.getByRole("button", { name: /Manage groups/ }).click();
     await page.getByRole("button", { name: "Add group", exact: true }).first().click();
     await page.getByRole("textbox", { name: "Group name", exact: true }).fill("Youth");
@@ -781,7 +793,7 @@ test("church settings, members, sessions and duplicate-safe check-in", async ({
     await page.getByRole("textbox", { name: "Subgroup name", exact: true }).fill("High School");
     await page.getByRole("button", { name: "Save subgroup", exact: true }).click();
     await expect(page.getByRole("button", { name: /High School Youth/ })).toBeVisible();
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("button", { name: "Settings" }).click();
     await page.getByRole("button", { name: /Manage custom fields/ }).click();
     await page.getByRole("button", { name: "Add custom field", exact: true }).first().click();
     await page.getByRole("textbox", { name: "Field name", exact: true }).fill("Emergency contact");
@@ -900,7 +912,7 @@ test("church settings, members, sessions and duplicate-safe check-in", async ({
     await page.getByRole("button", { name: "Archive group", exact: true }).click();
     await page.getByRole("button", { name: "Confirm archive", exact: true }).click();
     await expect(page.getByRole("button", { name: /Youth Archived group/ })).toBeVisible();
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("button", { name: "Settings" }).click();
     await page.getByRole("textbox", { name: "Search churches" }).fill(name);
     await page.getByRole("button", { name: new RegExp(name) }).click();
     await page
@@ -978,4 +990,52 @@ test("member sort sheet updates server filters and shows creation metadata", asy
 
   await page.getByRole("button", { name: /Jordan Example/ }).click();
   await expect(page.getByText(/^Registered /)).toBeVisible();
+});
+
+// User management: a global admin (temp "admin" login) can invite a user,
+// see the Invited badge, and the claim endpoint flips the record to Active.
+test("global admin invites a user and the invite can be claimed", async ({ page }) => {
+  const invitedUser = {
+    ...metadata("jane@example.com", "global"),
+    email: "jane@example.com",
+    role: "church-admin",
+    churchIds: [alpha.id],
+    displayName: "Jane Admin",
+    invitedBy: "admin",
+    status: "invited",
+    claimedOn: null,
+  };
+  let users: unknown[] = [invitedUser];
+  await page.route("**/api/v1/**", async (route) => {
+    const url = new URL(route.request().url());
+    const path = url.pathname.replace("/api/v1", "");
+    const method = route.request().method();
+    let body: unknown = pageBody([]);
+    if (path === "/churches") body = pageBody([alpha, beta]);
+    else if (path === "/users") {
+      if (method === "POST") {
+        const input = route.request().postDataJSON();
+        const created = { ...metadata(input.email, "global"), ...input, status: "invited", claimedOn: null, _etag: '"u-created"' };
+        users = [...users, created];
+        await route.fulfill({ status: 201, json: created });
+        return;
+      }
+      body = pageBody(users);
+    } else if (path === `/users/${encodeURIComponent("jane@example.com")}/claim`) {
+      users = users.map((u) => (u as { email: string }).email === "jane@example.com" ? { ...(u as object), status: "active", claimedOn: new Date().toISOString() } : u);
+      body = users.find((u) => (u as { email: string }).email === "jane@example.com");
+    }
+    await route.fulfill({ json: body });
+  });
+  await page.goto("/settings");
+  await page.getByRole("button", { name: /Manage users/ }).click();
+  await expect(page.getByRole("heading", { name: "Users", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /jane@example\.com/ })).toContainText("Invited");
+  await page.getByRole("button", { name: "Invite user", exact: true }).click();
+  await page.getByRole("textbox", { name: "Email", exact: true }).fill("new.user@example.com");
+  await page.getByRole("textbox", { name: "Display name", exact: true }).fill("New User");
+  await page.getByLabel("Alpha Community", { exact: true }).check();
+  await page.getByRole("button", { name: "Send invite", exact: true }).click();
+  await expect(page.getByText("User saved.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /new\.user@example\.com/ })).toContainText("Invited");
 });
