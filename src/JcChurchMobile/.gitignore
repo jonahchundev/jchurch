@@ -6,3 +6,4 @@ coverage/
 expo-env.d.ts
 playwright-report/
 test-results/
+public/user-guide/

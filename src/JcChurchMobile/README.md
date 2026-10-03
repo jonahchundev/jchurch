@@ -167,8 +167,14 @@ Verified during implementation: 14 API/domain tests; 12 desktop and phone-sized 
 
 ### Deployment to Azure Static Website
 
+The web build copies the repository-level `user-guide/` folder into the static
+site and renders it at `/user-guide`. Markdown remains the guide's source
+format; the app fetches and renders it at runtime.
+
+```sh
 npm install
-npm expo export -platform web
+npm run export:web
+```
 
 npx @azure/static-web-apps-cli deploy .\dist --deployment-token {deploymentToken} --env production
 

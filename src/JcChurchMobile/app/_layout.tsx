@@ -37,6 +37,7 @@ function AppNavigator() {
         <Stack.Protected guard={!authenticated}>
           <Stack.Screen name="login" options={{ title: "Sign in" }} />
         </Stack.Protected>
+        <Stack.Screen name="user-guide/index" options={{ title: "User guide" }} />
         <Stack.Screen name="register/[churchId]/index" options={{ title: "Registration" }} />
         <Stack.Screen
           name="register/[churchId]/[eventId]/[occurrenceId]"

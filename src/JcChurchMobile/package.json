@@ -4,15 +4,16 @@
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
-    "start": "expo start --localhost",
+    "prepare:user-guide": "node scripts/copy-user-guide.mjs",
+    "start": "npm run prepare:user-guide && expo start --localhost",
     "ios": "expo start --ios --localhost",
     "android": "expo start --android --localhost",
-    "web": "expo start --web --localhost",
+    "web": "npm run prepare:user-guide && expo start --web --localhost",
     "typecheck": "tsc --noEmit",
     "test": "vitest run tests/client.test.ts tests/duplicates.test.ts tests/reportRange.test.ts",
     "test:e2e": "playwright test",
     "generate:api": "openapi-typescript ../jchurchFunction/openapi.json -o src/api/generated.ts",
-    "export:web": "expo export --platform web",
+    "export:web": "npm run prepare:user-guide && expo export --platform web",
     "export:native": "expo export --platform ios --platform android"
   },
   "dependencies": {
@@ -48,6 +49,7 @@
     "react-dom": "19.2.3",
     "react-hook-form": "^7.88.0",
     "react-native": "0.86.3",
+    "react-native-markdown-display": "^7.0.2",
     "react-native-reanimated": "4.5.1",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",

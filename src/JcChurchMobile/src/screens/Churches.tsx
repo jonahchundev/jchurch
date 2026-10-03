@@ -145,6 +145,14 @@ export default function Churches({ manage = false }: { manage?: boolean }) {
           onPress={() => router.push("/users")}
         />
       )}
+      {manage && (
+        <Row
+          title="User guide"
+          subtitle="Browse the JChurch help guide"
+          icon="help-circle-outline"
+          onPress={() => router.push("/user-guide")}
+        />
+      )}
       {!!notice && <Notice>{notice}</Notice>}
       {unprovisioned && (
         <Notice>

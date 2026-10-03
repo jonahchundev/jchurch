@@ -98,11 +98,6 @@ export default function Members() {
       actions={
         <>
           <IconButton
-            icon="copy-outline"
-            label="Clean up duplicate members"
-            onPress={() => router.push(`/church/${churchId}/duplicates`)}
-          />
-          <IconButton
             icon="cloud-download-outline"
             label="Import or export CSV"
             onPress={() => setImportExportOpen(true)}
