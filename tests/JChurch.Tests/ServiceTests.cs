@@ -264,6 +264,30 @@ public sealed class ServiceTests
     }
 
     [Fact]
+    public async Task MergeReplacesUndoneKeeperReceipt()
+    {
+        var (repositories, directory, merges, checkIns, keeper, loser) = await MergeFixture();
+        // The keeper checked in and was later undone: an inactive receipt still occupies the keeper's slot.
+        await checkIns.CheckIn(keeper.ChurchId, "occurrence", keeper.Id);
+        await checkIns.Undo(keeper.ChurchId, "occurrence", keeper.Id);
+        var loserReceipt = (await checkIns.CheckIn(keeper.ChurchId, "occurrence", loser.Id)).Item;
+
+        var result = await merges.Merge(keeper.ChurchId, keeper.Id, loser.Id, loser.ETag, null, "", default);
+
+        Assert.Equal(1, result.CheckInsMoved);
+        Assert.Equal(0, result.CheckInsSkipped);
+        // Count preserved: the keeper's inactive receipt was reactivated with the loser's content.
+        Assert.Equal(1, (await repositories.Attendance.ActiveCheckInCounts(keeper.ChurchId, "event")).Single().CheckedInCount);
+        var moved = await repositories.Attendance.Get(keeper.ChurchId, CheckInService.ReceiptId("occurrence", keeper.Id), "occurrence");
+        Assert.NotNull(moved);
+        Assert.True(moved!.Active);
+        Assert.Equal(loserReceipt.CheckedInAt, moved.CheckedInAt);
+        Assert.Contains(moved.Audit, entry => entry.Action == $"merged-from {loser.Id}");
+        Assert.Null(await repositories.Attendance.Get(loser.ChurchId, CheckInService.ReceiptId("occurrence", loser.Id), "occurrence"));
+        Assert.False((await directory.Get<Member>(loser.ChurchId, loser.Id)).Active);
+    }
+
+    [Fact]
     public async Task MergeRejectsSameMemberAndArchives()
     {
         var (_, _, merges, _, keeper, loser) = await MergeFixture();

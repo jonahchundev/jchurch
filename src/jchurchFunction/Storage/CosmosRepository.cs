@@ -192,7 +192,7 @@ public sealed class CosmosRepository<T>(CosmosClient client, CosmosSettings sett
         return counts;
     }
 
-    public async Task<T> Transfer(string churchId, string loserId, string loserEtag, T keeper, CancellationToken cancellationToken = default)
+    public async Task<T> Transfer(string churchId, string loserId, string loserEtag, T keeper, string? keeperEtag = null, CancellationToken cancellationToken = default)
     {
         if (typeof(T) != typeof(Attendance)) throw new NotSupportedException("Transfer requires an attendance repository.");
         if (string.IsNullOrWhiteSpace(loserEtag) || loserEtag == "*") throw new ApiException(412, "stale_version", "An exact ETag is required.");
@@ -202,8 +202,12 @@ public sealed class CosmosRepository<T>(CosmosClient client, CosmosSettings sett
         var now = clock.GetUtcNow();
         Document stamped = (Document)keeper with { CreatedOn = now, UpdatedOn = now };
         var batch = container.CreateTransactionalBatch(partition)
-            .DeleteItem(loserId, new TransactionalBatchItemRequestOptions { IfMatchEtag = loserEtag })
-            .CreateItem(stamped);
+            .DeleteItem(loserId, new TransactionalBatchItemRequestOptions { IfMatchEtag = loserEtag });
+        // When the keeper's slot is occupied by an inactive receipt (e.g. an undone check-in), replace it
+        // atomically in the same batch instead of creating a new document.
+        batch = keeperEtag is null
+            ? batch.CreateItem(stamped)
+            : batch.ReplaceItem(stamped.Id, stamped, new TransactionalBatchItemRequestOptions { IfMatchEtag = keeperEtag });
         using var response = await batch.ExecuteAsync(cancellationToken);
         if (!response.IsSuccessStatusCode)
         {

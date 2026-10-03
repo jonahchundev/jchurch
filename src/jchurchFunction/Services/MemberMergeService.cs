@@ -18,8 +18,8 @@ public sealed class MemberMergeService(Repositories repositories, DirectoryServi
     public async Task<MergePreview> Preview(string churchId, string keepId, string loserId, CancellationToken cancellationToken = default)
     {
         var (keeper, loser) = await LoadPair(churchId, keepId, loserId, cancellationToken);
-        var keeperReceipts = await ActiveReceipts(churchId, keeper.Id, cancellationToken);
-        var loserReceipts = await ActiveReceipts(churchId, loser.Id, cancellationToken);
+        var keeperReceipts = await Receipts(churchId, keeper.Id, activeOnly: true, cancellationToken);
+        var loserReceipts = await Receipts(churchId, loser.Id, activeOnly: true, cancellationToken);
         var keeperOccurrences = new HashSet<string>(keeperReceipts.Select(receipt => receipt.OccurrenceId), StringComparer.Ordinal);
         var movable = loserReceipts.Count(receipt => !keeperOccurrences.Contains(receipt.OccurrenceId));
         return new MergePreview(keeperReceipts.Count, loserReceipts.Count, movable, loserReceipts.Count - movable);
@@ -39,14 +39,20 @@ public sealed class MemberMergeService(Repositories repositories, DirectoryServi
             keeper = await directory.Save(updated, churchId, keeper.Id, keeperEtag, cancellationToken);
         }
 
-        var keeperReceipts = await ActiveReceipts(churchId, keeper.Id, cancellationToken);
-        var keeperOccurrences = new HashSet<string>(keeperReceipts.Select(receipt => receipt.OccurrenceId), StringComparer.Ordinal);
-        var loserReceipts = await ActiveReceipts(churchId, loser.Id, cancellationToken);
+        // Load the keeper's receipts with inactive ones included: an undone check-in still occupies the
+        // deterministic receipt slot ({occurrenceId}_{memberId}), so a naive create would collide with it.
+        var keeperReceipts = await Receipts(churchId, keeper.Id, activeOnly: false, cancellationToken);
+        var keeperOccurrences = new HashSet<string>(keeperReceipts.Where(receipt => receipt.Active).Select(receipt => receipt.OccurrenceId), StringComparer.Ordinal);
+        var staleKeeperReceipts = new Dictionary<string, Attendance>(StringComparer.Ordinal);
+        foreach (var receipt in keeperReceipts)
+            if (!receipt.Active && receipt.OccurrenceId is not null) staleKeeperReceipts[receipt.OccurrenceId] = receipt;
+        var loserReceipts = await Receipts(churchId, loser.Id, activeOnly: true, cancellationToken);
         var moved = 0;
         var skipped = 0;
         foreach (var receipt in loserReceipts)
         {
-            if (keeperOccurrences.Contains(receipt.OccurrenceId))
+            if (receipt.OccurrenceId is not { } occurrenceId) continue;
+            if (keeperOccurrences.Contains(occurrenceId))
             {
                 // True duplicate: same person checked in twice to one occurrence. Keep the keeper's receipt and
                 // archive the loser's copy — the occurrence's active count drops by one (real headcount).
@@ -60,13 +66,15 @@ public sealed class MemberMergeService(Repositories repositories, DirectoryServi
             }
             var moved1 = receipt with
             {
-                Id = CheckInService.ReceiptId(receipt.OccurrenceId, keeper.Id),
+                Id = CheckInService.ReceiptId(occurrenceId, keeper.Id),
                 MemberId = keeper.Id,
                 ETag = "",
                 Audit = [.. receipt.Audit, new AttendanceAuditEntry { Action = $"merged-from {loser.Id}", OccurredAt = clock.GetUtcNow() }]
             };
-            await repositories.Attendance.Transfer(churchId, receipt.Id, receipt.ETag, moved1, cancellationToken);
-            keeperOccurrences.Add(receipt.OccurrenceId);
+            // Replace the keeper's stale (undone) receipt in place when one occupies the slot.
+            staleKeeperReceipts.TryGetValue(occurrenceId, out var stale);
+            await repositories.Attendance.Transfer(churchId, receipt.Id, receipt.ETag, moved1, stale?.ETag, cancellationToken);
+            keeperOccurrences.Add(occurrenceId);
             moved++;
         }
 
@@ -83,7 +91,7 @@ public sealed class MemberMergeService(Repositories repositories, DirectoryServi
         return (keeper, loser);
     }
 
-    private async Task<List<Attendance>> ActiveReceipts(string churchId, string memberId, CancellationToken cancellationToken)
+    private async Task<List<Attendance>> Receipts(string churchId, string memberId, bool activeOnly, CancellationToken cancellationToken)
     {
         var receipts = new List<Attendance>();
         string? cursor = null;
@@ -93,7 +101,7 @@ public sealed class MemberMergeService(Repositories repositories, DirectoryServi
             {
                 ChurchId = churchId,
                 MemberId = memberId,
-                ActiveOnly = true,
+                ActiveOnly = activeOnly,
                 PageSize = 200,
                 ContinuationToken = cursor
             }, cancellationToken);

@@ -161,7 +161,7 @@ public sealed class InMemoryRepository<T> : IRepository<T> where T : Document
         }
     }
 
-    public Task<T> Transfer(string churchId, string loserId, string loserEtag, T keeper, CancellationToken cancellationToken = default)
+    public Task<T> Transfer(string churchId, string loserId, string loserEtag, T keeper, string? keeperEtag = null, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (typeof(T) != typeof(Attendance)) throw new NotSupportedException("Transfer requires an attendance repository.");
@@ -172,12 +172,22 @@ public sealed class InMemoryRepository<T> : IRepository<T> where T : Document
             if (!documents.TryGetValue(loserKey, out var loser)) throw new ApiException(404, "not_found", "The check-in to move was not found.");
             if (string.IsNullOrEmpty(loserEtag) || loserEtag != loser.ETag) throw new ApiException(412, "stale_version", "ETag is stale.");
             var keeperKey = Key(keeper);
-            if (documents.ContainsKey(keeperKey)) throw new ApiException(409, "already_exists", "The kept member already has a check-in for this occurrence.");
+            if (documents.TryGetValue(keeperKey, out var staleKeeper))
+            {
+                // An inactive receipt (e.g. an undone check-in) still occupies the keeper's slot: replace it
+                // atomically when the caller supplied its ETag; otherwise this is a true conflict.
+                if (string.IsNullOrEmpty(keeperEtag)) throw new ApiException(409, "already_exists", "The kept member already has a check-in for this occurrence.");
+                if (keeperEtag != staleKeeper.ETag) throw new ApiException(412, "stale_version", "ETag is stale.");
+            }
+            else if (!string.IsNullOrEmpty(keeperEtag))
+            {
+                throw new ApiException(404, "not_found", "The check-in to replace was not found.");
+            }
             var now = timeProvider.GetUtcNow();
             Document stamped = (Document)keeper with { CreatedOn = now, UpdatedOn = now };
             var stored = (T)stamped with { ETag = $"\"{Guid.NewGuid():N}\"" };
             documents.Remove(loserKey);
-            documents.Add(keeperKey, Json.Clone(stored));
+            documents[keeperKey] = Json.Clone(stored);
             return Task.FromResult(stored);
         }
     }
