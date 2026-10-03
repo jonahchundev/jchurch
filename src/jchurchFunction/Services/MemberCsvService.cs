@@ -247,9 +247,7 @@ public sealed class MemberCsvService(Repositories repositories, DirectoryService
             MiddleName = string.IsNullOrWhiteSpace(row.MiddleName) ? null : row.MiddleName,
             LastName = row.LastName ?? "",
             Gender = string.IsNullOrWhiteSpace(row.Gender) ? null : row.Gender,
-            BirthDate = string.IsNullOrWhiteSpace(row.BirthDate) ? null
-                : DateOnly.TryParseExact(row.BirthDate, "yyyy-MM-dd", out var birthDate) ? birthDate
-                : throw new ApiException(400, "invalid_birth_date", "birthDate must be yyyy-MM-dd."),
+            BirthDate = ParseBirthDate(row.BirthDate),
             School = string.IsNullOrWhiteSpace(row.School) ? null : row.School,
             Phone = string.IsNullOrWhiteSpace(row.Phone) ? null : row.Phone,
             Email = string.IsNullOrWhiteSpace(row.Email) ? null : row.Email,
@@ -264,6 +262,18 @@ public sealed class MemberCsvService(Repositories repositories, DirectoryService
         if (id is null) return (member, null, null);
         var existing = await repositories.Members.Get(churchId, id, cancellationToken: cancellationToken);
         return existing is null ? (member, id, null) : (member, id, existing.ETag);
+    }
+
+    private static readonly string[] BirthDateFormats = ["yyyy-MM-dd", "M/d/yyyy", "M/d/yy", "MM/dd/yyyy", "MM/dd/yy"];
+
+    // Accept ISO yyyy-MM-dd plus common US date inputs (e.g. 12/22/15, 12/22/2015) so pasted CSV dates don't fail.
+    private static DateOnly? ParseBirthDate(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var trimmed = value.Trim();
+        if (DateOnly.TryParseExact(trimmed, BirthDateFormats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var birthDate))
+            return birthDate;
+        throw new ApiException(400, "invalid_birth_date", $"birthDate \"{trimmed}\" must be yyyy-MM-dd (or M/d/yyyy).");
     }
 
     private static Guardian? BuildGuardian(string? firstName, string? middleName, string? lastName, string? relationship, string? otherRelationship, string? phone, string? email)
