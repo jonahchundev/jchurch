@@ -300,6 +300,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/churches/{churchId}/members/{id}/merge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                churchId: components["parameters"]["churchId"];
+                id: components["parameters"]["id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Merge a duplicate 'loser' member into this member (the keeper): the loser's active check-ins move to the keeper with their original checkedInAt, and the loser is archived. Count-preserving: a moved check-in atomically replaces the loser's receipt, so an occurrence's active total is unchanged; when both members checked in to the same occurrence, the keeper's receipt is kept and the loser's copy archived (count drops by one). Pass ?dryRun=true to preview counts without changing anything. Optional keeperUpdate applies per-field picks to the keeper (validated like a normal member save) before the transfer. */
+        post: operations["mergeMember"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/churches/{churchId}/members/export": {
         parameters: {
             query?: never;
@@ -598,8 +618,27 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** @description Ranges are [from,to), maximum 93 days when supplied. Reports include active check-ins only. Group filters use check-in-time snapshots, not current memberships. */
+        /** @description Ranges are [from,to), maximum 93 days when supplied unless memberId is present (single-member history is unbounded). Reports include active check-ins only. Group filters use check-in-time snapshots, not current memberships. */
         get: operations["reportAttendance"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/churches/{churchId}/attendance/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                churchId: components["parameters"]["churchId"];
+            };
+            cookie?: never;
+        };
+        /** @description Active check-ins aggregated by groupBy (event, occurrence, member, group, or day). Key per row: the event/occurrence/member id, a group id unwound from check-in-time inclusiveGroupIds snapshots, or a UTC date (yyyy-MM-dd) for day. uniqueMemberCount counts distinct members per group. Date ranges are [from,to) with no maximum. Not paginated; returns every group (server cap 10,000). */
+        get: operations["summarizeAttendance"];
         put?: never;
         post?: never;
         delete?: never;
@@ -749,6 +788,35 @@ export interface components {
         OccurrenceCheckInCount: {
             occurrenceId: string;
             checkedInCount: number;
+        };
+        AttendanceSummaryRow: {
+            key: string;
+            checkedInCount: number;
+            uniqueMemberCount: number;
+        };
+        MemberMergeRequest: {
+            /** @description The duplicate member to merge into this member and then archive. */
+            loserId: string;
+            /** @description Exact current ETag of the loser; required to merge (omit only with dryRun=true). */
+            loserEtag?: string;
+            /** @description Exact current ETag of the keeper; required when keeperUpdate is supplied. */
+            keeperEtag?: string;
+            /** @description Optional full member body carrying the per-field picks to keep; validated like a normal member save before the transfer. */
+            keeperUpdate?: components["schemas"]["MemberInput"];
+        };
+        MergePreview: {
+            keeperCheckIns: number;
+            loserCheckIns: number;
+            /** @description Loser check-ins that will move to the keeper (occurrence has no keeper receipt). */
+            movable: number;
+            /** @description Overlapping occurrences where both checked in; the loser's copy is archived instead. */
+            skipped: number;
+        };
+        MergeResult: {
+            kept: string;
+            archived: string;
+            checkInsMoved: number;
+            checkInsSkipped: number;
         };
         MemberImageUpload: {
             /** @enum {string} */
@@ -942,6 +1010,8 @@ export interface components {
         occurrenceId: string;
         memberId: string;
         groupId: string;
+        /** @description Summary grouping dimension. */
+        groupBy: "event" | "occurrence" | "member" | "group" | "day";
         parentGroupId: string;
         from: string;
         to: string;
@@ -1609,6 +1679,36 @@ export interface operations {
             default: components["responses"]["Problem"];
         };
     };
+    mergeMember: {
+        parameters: {
+            query?: {
+                dryRun?: boolean;
+            };
+            header?: never;
+            path: {
+                churchId: components["parameters"]["churchId"];
+                id: components["parameters"]["id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemberMergeRequest"];
+            };
+        };
+        responses: {
+            /** @description Merge result (or preview when dryRun=true) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MergeResult"] | components["schemas"]["MergePreview"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
     exportMembers: {
         parameters: {
             query?: never;
@@ -2164,6 +2264,41 @@ export interface operations {
         requestBody?: never;
         responses: {
             200: components["responses"]["Page"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    summarizeAttendance: {
+        parameters: {
+            query: {
+                /** @description Summary grouping dimension. */
+                groupBy: components["parameters"]["groupBy"];
+                eventId?: components["parameters"]["eventId"];
+                occurrenceId?: components["parameters"]["occurrenceId"];
+                memberId?: components["parameters"]["memberId"];
+                groupId?: components["parameters"]["groupId"];
+                includeSubgroups?: components["parameters"]["includeSubgroups"];
+                from?: components["parameters"]["from"];
+                to?: components["parameters"]["to"];
+            };
+            header?: never;
+            path: {
+                churchId: components["parameters"]["churchId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Attendance summary rows */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["AttendanceSummaryRow"][];
+                    };
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };

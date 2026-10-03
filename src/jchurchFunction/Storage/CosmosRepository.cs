@@ -192,6 +192,39 @@ public sealed class CosmosRepository<T>(CosmosClient client, CosmosSettings sett
         return counts;
     }
 
+    private const int MaxSummaryGroups = 10_000;
+
+    public async Task<IReadOnlyList<AttendanceSummaryRow>> Summarize(Query query, string groupBy, CancellationToken cancellationToken = default)
+    {
+        if (typeof(T) != typeof(Attendance)) throw new NotSupportedException("Summaries require an attendance repository.");
+        query.Validate();
+        var (from, key, group) = groupBy switch
+        {
+            "event" => ("c", "c.eventId", "c.eventId"),
+            "occurrence" => ("c", "c.occurrenceId", "c.occurrenceId"),
+            "member" => ("c", "c.memberId", "c.memberId"),
+            "day" => ("c", "SUBSTRING(c.checkedInAt, 0, 10)", "SUBSTRING(c.checkedInAt, 0, 10)"),
+            "group" => ("c JOIN g IN c.inclusiveGroupIds", "g", "g"),
+            _ => throw new ApiException(400, "invalid_query", "groupBy must be event, occurrence, member, group, or day.")
+        };
+        var (clauses, parameters) = BuildFilters(query, null);
+        var definition = new QueryDefinition($"SELECT {key} AS key, COUNT(1) AS checkedInCount, COUNT(DISTINCT c.memberId) AS uniqueMemberCount FROM {from} WHERE {string.Join(" AND ", clauses)} GROUP BY {group}");
+        foreach (var parameter in parameters) definition.WithParameter(parameter.Key, parameter.Value);
+        using var iterator = container.GetItemQueryIterator<AttendanceSummaryRow>(definition, requestOptions: new QueryRequestOptions
+        {
+            PartitionKey = Partition(query.ChurchId, query.OccurrenceId)
+        });
+        var rows = new List<AttendanceSummaryRow>();
+        while (iterator.HasMoreResults)
+        {
+            rows.AddRange(await iterator.ReadNextAsync(cancellationToken));
+            if (rows.Count > MaxSummaryGroups) throw new ApiException(400, "too_many_results", "Summary produced too many groups; narrow the filters.");
+        }
+        // GROUP BY results have no defined order; sort by key so summaries are deterministic across repositories.
+        rows.Sort((left, right) => string.CompareOrdinal(left.Key, right.Key));
+        return rows;
+    }
+
     public async Task<T> Transfer(string churchId, string loserId, string loserEtag, T keeper, string? keeperEtag = null, CancellationToken cancellationToken = default)
     {
         if (typeof(T) != typeof(Attendance)) throw new NotSupportedException("Transfer requires an attendance repository.");
@@ -251,6 +284,21 @@ public sealed class CosmosRepository<T>(CosmosClient client, CosmosSettings sett
 
     private static QueryDefinition BuildQuery(Query query, int? memberDatePhase)
     {
+        var (clauses, parameters) = BuildFilters(query, memberDatePhase);
+        var nameDirection = query.NameSort == "desc" ? "DESC" : "ASC";
+        var orderBy = typeof(T) == typeof(Member)
+            ? memberDatePhase == 0
+                ? $"c.createdOn {(query.CreatedOnSort == "newest" ? "DESC" : "ASC")}, c.lastName {nameDirection}, c.firstName {nameDirection}, c.id {nameDirection}"
+                : $"c.lastName {nameDirection}, c.firstName {nameDirection}, c.id {nameDirection}"
+            : "c.id";
+        var definition = new QueryDefinition($"SELECT * FROM c WHERE {string.Join(" AND ", clauses)} ORDER BY {orderBy}");
+        foreach (var parameter in parameters) definition.WithParameter(parameter.Key, parameter.Value);
+        return definition;
+    }
+
+    // WHERE clauses + parameters shared by Search (BuildQuery) and Summarize. Contains no SELECT, ORDER BY, or pagination.
+    private static (List<string> Clauses, Dictionary<string, object> Parameters) BuildFilters(Query query, int? memberDatePhase)
+    {
         var clauses = new List<string> { "c.churchId = @churchId", "c.kind = @kind" };
         var parameters = new Dictionary<string, object> { ["@churchId"] = query.ChurchId, ["@kind"] = typeof(T).Name };
         if (typeof(T) == typeof(Church) && query.ChurchId == "")
@@ -299,15 +347,7 @@ public sealed class CosmosRepository<T>(CosmosClient client, CosmosSettings sett
             clauses.Add($"c.{dateField} < @to");
             parameters["@to"] = UtcDateTimeConverter.Format(query.To.Value);
         }
-        var nameDirection = query.NameSort == "desc" ? "DESC" : "ASC";
-        var orderBy = typeof(T) == typeof(Member)
-            ? memberDatePhase == 0
-                ? $"c.createdOn {(query.CreatedOnSort == "newest" ? "DESC" : "ASC")}, c.lastName {nameDirection}, c.firstName {nameDirection}, c.id {nameDirection}"
-                : $"c.lastName {nameDirection}, c.firstName {nameDirection}, c.id {nameDirection}"
-            : "c.id";
-        var definition = new QueryDefinition($"SELECT * FROM c WHERE {string.Join(" AND ", clauses)} ORDER BY {orderBy}");
-        foreach (var parameter in parameters) definition.WithParameter(parameter.Key, parameter.Value);
-        return definition;
+        return (clauses, parameters);
     }
 
     private static MemberDatePosition? DecodeMemberDatePosition(string? encoded)

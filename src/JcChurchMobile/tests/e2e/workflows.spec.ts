@@ -1039,3 +1039,68 @@ test("global admin invites a user and the invite can be claimed", async ({ page 
   await expect(page.getByText("User saved.", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /new\.user@example\.com/ })).toContainText("Invited");
 });
+
+test("attendance reports drill from the hub to a read-only session roster", async ({ page }) => {
+  const pastSession = {
+    ...metadata("occ_past", alpha.id),
+    eventId: sampleEvent.id,
+    startsAt: new Date(Date.now() - 86400000).toISOString(),
+    endsAt: new Date(Date.now() - 82800000).toISOString(),
+    cancelled: false,
+    archived: false,
+    overridden: false,
+  };
+  const adults = { ...metadata("group_adults", alpha.id), name: "Adults", parentGroupId: null };
+  const receipts = [jordan, secondMember].map((member, index) => ({
+    ...metadata(`${pastSession.id}_${member.id}`, alpha.id),
+    eventId: sampleEvent.id,
+    occurrenceId: pastSession.id,
+    memberId: member.id,
+    checkedInAt: new Date(Date.now() - 86000000 + index * 60000).toISOString(),
+    groupIds: [adults.id],
+    inclusiveGroupIds: [adults.id],
+  }));
+  await page.route("**/api/v1/**", async (route) => {
+    const url = new URL(route.request().url());
+    const path = url.pathname.replace("/api/v1", "");
+    let body: unknown = pageBody([]);
+    if (path === "/churches") body = pageBody([alpha]);
+    else if (path === `/churches/${alpha.id}`) body = alpha;
+    else if (path === `/churches/${alpha.id}/events`) body = pageBody([sampleEvent]);
+    else if (path === `/churches/${alpha.id}/events/${sampleEvent.id}/occurrences`) body = pageBody([pastSession]);
+    else if (path === `/churches/${alpha.id}/events/${sampleEvent.id}/occurrence-check-in-counts`)
+      body = pageBody([{ occurrenceId: pastSession.id, checkedInCount: 2 }]);
+    else if (path === `/churches/${alpha.id}/attendance/summary`) {
+      const groupBy = url.searchParams.get("groupBy");
+      body = {
+        items: groupBy === "member"
+          ? [
+              { key: jordan.id, checkedInCount: 1, uniqueMemberCount: 1 },
+              { key: secondMember.id, checkedInCount: 1, uniqueMemberCount: 1 },
+            ]
+          : groupBy === "group"
+            ? [{ key: adults.id, checkedInCount: 2, uniqueMemberCount: 2 }]
+            : [{ key: pastSession.id, checkedInCount: 2, uniqueMemberCount: 2 }],
+      };
+    }
+    else if (path === `/churches/${alpha.id}/attendance`) body = pageBody(receipts);
+    else if (path === `/churches/${alpha.id}/members`) body = pageBody([jordan, secondMember]);
+    else if (path === `/churches/${alpha.id}/members/${jordan.id}`) body = jordan;
+    else if (path === `/churches/${alpha.id}/members/${secondMember.id}`) body = secondMember;
+    else if (path === `/churches/${alpha.id}/groups`) body = pageBody([adults]);
+    await route.fulfill({ json: body });
+  });
+  await page.goto(`/church/${alpha.id}/reports`);
+  await page.getByRole("button", { name: /By Event/ }).click();
+  await page.getByLabel("Event", { exact: true }).selectOption(sampleEvent.id);
+  await expect(page.getByText("Unique attendees", { exact: true })).toBeVisible();
+  const sessionRow = page.getByRole("button", { name: /2 checked in/ });
+  await expect(sessionRow).toBeVisible();
+  await sessionRow.click();
+  // The session report is pre-filled by the drill-down and its roster is read-only.
+  await expect(page.getByRole("heading", { name: "Roster", exact: true })).toBeVisible();
+  await expect(page.getByText("Jordan Example", { exact: true })).toBeVisible();
+  await expect(page.getByText("Casey Example", { exact: true })).toBeVisible();
+  await expect(page.getByText("Adults", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Undo", exact: true })).toHaveCount(0);
+});

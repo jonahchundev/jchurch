@@ -47,9 +47,29 @@ internal static class QueryParsing
             NameSort = values["nameSort"] ?? "asc", CreatedOnSort = values["createdOnSort"],
             PageSize = values["pageSize"] is not { } size ? 50 : int.TryParse(size, out var parsed) ? parsed : throw new ApiException(400, "invalid_query", "Invalid pageSize.")
         };
-        if (attendance && query.From is not null && query.To is not null)
+        if (attendance && query.MemberId is null && query.From is not null && query.To is not null)
             DirectoryService.Require(query.To - query.From <= TimeSpan.FromDays(93), "Attendance report ranges must not exceed 93 days.");
         query.Validate();
         return query;
+    }
+
+    // Parses filters for the attendance summary endpoint. No pagination keys and no 93-day cap: aggregated
+    // payloads stay small regardless of range, so multi-year summaries are allowed.
+    internal static (Query Query, string GroupBy) ParseSummaryQuery(NameValueCollection values, string churchId)
+    {
+        var allowed = new[] { "groupBy", "eventId", "occurrenceId", "memberId", "groupId", "includeSubgroups", "from", "to" };
+        foreach (var key in values.AllKeys)
+            if (key is null || !allowed.Contains(key) || values.GetValues(key)?.Length != 1) throw new ApiException(400, "invalid_query", "Unknown or repeated query parameter.");
+        var groupBy = values["groupBy"];
+        if (groupBy is not ("event" or "occurrence" or "member" or "group" or "day")) throw new ApiException(400, "invalid_query", "groupBy must be event, occurrence, member, group, or day.");
+        bool Flag(string name) => values[name] is not { } value ? false : bool.TryParse(value, out var parsed) ? parsed : throw new ApiException(400, "invalid_query", $"{name} must be true or false.");
+        DateTimeOffset? Date(string name) => values[name] is not { } value ? null : DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed) ? parsed.ToUniversalTime() : throw new ApiException(400, "invalid_query", $"Invalid {name} timestamp.");
+        var query = new Query
+        {
+            ChurchId = churchId, EventId = values["eventId"], OccurrenceId = values["occurrenceId"], MemberId = values["memberId"], GroupId = values["groupId"],
+            IncludeSubgroups = Flag("includeSubgroups"), From = Date("from"), To = Date("to")
+        };
+        query.Validate();
+        return (query, groupBy);
     }
 }

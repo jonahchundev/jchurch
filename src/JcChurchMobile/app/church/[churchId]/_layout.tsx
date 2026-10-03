@@ -138,6 +138,36 @@ export default function ChurchLayout() {
         }}
       />
       <Tabs.Screen
+        name="reports"
+        initialParams={{ churchId }}
+        options={{
+          title: "Reports",
+          tabBarIcon: ({ color }) => (
+            <Icon name="bar-chart-outline" color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="report-event"
+        initialParams={{ churchId }}
+        options={{ href: null }}
+      />
+      <Tabs.Screen
+        name="report-session"
+        initialParams={{ churchId }}
+        options={{ href: null }}
+      />
+      <Tabs.Screen
+        name="report-member"
+        initialParams={{ churchId }}
+        options={{ href: null }}
+      />
+      <Tabs.Screen
+        name="report-group"
+        initialParams={{ churchId }}
+        options={{ href: null }}
+      />
+      <Tabs.Screen
         name="groups"
         initialParams={{ churchId }}
         options={{ href: null }}

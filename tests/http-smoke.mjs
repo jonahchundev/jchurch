@@ -77,6 +77,35 @@ assert.equal(report.items.length, 1);
 assert.deepEqual(new Set(report.items[0].groupIds), new Set([group.id, subgroup.id]));
 assert.equal((await api(`${root}/attendance?memberId=${member.id}&eventId=${event.id}`)).items.length, 1);
 await api(`${root}/attendance?from=2020-01-01&to=2026-01-01`, 'GET', undefined, 400);
+// Member-scoped raw queries are exempt from the 93-day cap (bounded single-member history).
+assert.equal((await api(`${root}/attendance?memberId=${member.id}&from=2020-01-01&to=2030-01-01`)).items.length, 1);
+// Attendance summaries aggregate the active check-in per dimension and allow multi-year ranges.
+assert.deepEqual((await api(`${root}/attendance/summary?groupBy=occurrence`)).items, [{ key: occurrence.id, checkedInCount: 1, uniqueMemberCount: 1 }]);
+assert.deepEqual((await api(`${root}/attendance/summary?groupBy=event`)).items, [{ key: event.id, checkedInCount: 1, uniqueMemberCount: 1 }]);
+assert.deepEqual((await api(`${root}/attendance/summary?groupBy=member`)).items, [{ key: member.id, checkedInCount: 1, uniqueMemberCount: 1 }]);
+const groupSummary = new Map((await api(`${root}/attendance/summary?groupBy=group`)).items.map(row => [row.key, row.checkedInCount]));
+assert.deepEqual(groupSummary, new Map([[group.id, 1], [subgroup.id, 1]]));
+assert.deepEqual((await api(`${root}/attendance/summary?groupBy=day&from=2020-01-01&to=2030-01-01`)).items, [{ key: new Date().toISOString().slice(0, 10), checkedInCount: 1, uniqueMemberCount: 1 }]);
+assert.equal((await api(`${root}/attendance/summary?groupBy=group&groupId=${group.id}`)).items.length, 2);
+await api(`${root}/attendance/summary?groupBy=bogus`, 'GET', undefined, 400);
+await api(`${root}/attendance/summary`, 'GET', undefined, 400);
+// Attendance summary endpoint: aggregates per dimension, no 93-day cap, member-scoped raw queries unbounded.
+const summary = await api(`${root}/attendance/summary?groupBy=occurrence`);
+assert.deepEqual(summary.items, [{ key: occurrence.id, checkedInCount: 1, uniqueMemberCount: 1 }]);
+assert.deepEqual((await api(`${root}/attendance/summary?groupBy=event`)).items, [{ key: event.id, checkedInCount: 1, uniqueMemberCount: 1 }]);
+assert.deepEqual((await api(`${root}/attendance/summary?groupBy=member`)).items, [{ key: member.id, checkedInCount: 1, uniqueMemberCount: 1 }]);
+const byDay = (await api(`${root}/attendance/summary?groupBy=day`)).items;
+assert.equal(byDay.length, 1);
+assert.match(byDay[0].key, /^\d{4}-\d{2}-\d{2}$/);
+assert.equal(byDay[0].checkedInCount, 1);
+const byGroup = (await api(`${root}/attendance/summary?groupBy=group`)).items;
+assert.deepEqual(new Set(byGroup.map(row => row.key)), new Set([group.id, subgroup.id]));
+assert.ok(byGroup.every(row => row.checkedInCount === 1 && row.uniqueMemberCount === 1));
+assert.equal((await api(`${root}/attendance/summary?groupBy=member&groupId=${group.id}&includeSubgroups=true`)).items.length, 1);
+assert.equal((await api(`${root}/attendance/summary?groupBy=event&from=2020-01-01&to=2030-01-01`)).items.length, 1);
+assert.equal((await api(`${root}/attendance?memberId=${member.id}&from=2020-01-01&to=2030-01-01`)).items.length, 1);
+await api(`${root}/attendance/summary?groupBy=bogus`, 'GET', undefined, 400);
+await api(`${root}/attendance/summary?groupBy=event`, 'POST', undefined, 405);
 const first = await api(`${root}/groups?pageSize=1`);
 const second = await api(`${root}/groups?pageSize=1&continuationToken=${encodeURIComponent(first.continuationToken)}`);
 assert.notEqual(first.items[0].id, second.items[0].id);
