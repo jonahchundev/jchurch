@@ -9,7 +9,7 @@
     "android": "expo start --android --localhost",
     "web": "expo start --web --localhost",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run tests/client.test.ts",
+    "test": "vitest run tests/client.test.ts tests/duplicates.test.ts",
     "test:e2e": "playwright test",
     "generate:api": "openapi-typescript ../jchurchFunction/openapi.json -o src/api/generated.ts",
     "export:web": "expo export --platform web",

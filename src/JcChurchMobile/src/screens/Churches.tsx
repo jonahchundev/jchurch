@@ -137,6 +137,14 @@ export default function Churches({ manage = false }: { manage?: boolean }) {
           onPress={() => router.navigate(`/church/${selected}/custom-fields`)}
         />
       )}
+      {manage && selected && canManageUsers(roleInfo) && (
+        <Row
+          title="Clean up duplicate members"
+          subtitle="Find and merge repeated registrations"
+          icon="copy-outline"
+          onPress={() => router.navigate(`/church/${selected}/duplicates`)}
+        />
+      )}
       {manage && canManageUsers(roleInfo) && (
         <Row
           title="Manage users"

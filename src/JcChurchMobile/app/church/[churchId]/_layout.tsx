@@ -145,6 +145,11 @@ export default function ChurchLayout() {
         initialParams={{ churchId }}
         options={{ href: null }}
       />
+      <Tabs.Screen
+        name="duplicates"
+        initialParams={{ churchId }}
+        options={{ href: null }}
+      />
     </Tabs>
   );
 }
