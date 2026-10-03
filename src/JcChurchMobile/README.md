@@ -33,8 +33,9 @@ The app has three roles, resolved client-side from the signed-in identity:
 Admins pre-provision accounts on the Settings → Manage users screen by entering an email, role,
 and church assignments. No email is sent. When that person later signs in with Google (matching
 email), the app calls `POST /users/{email}/claim` to flip their record from **Invited** to
-**Active** (shown as a badge in the user list). Google sign-ins with no matching record see an
-empty church list with an "ask an administrator to invite you" notice.
+**Active** (shown as a badge in the user list). A Google sign-in whose email has no matching active
+user record is refused at the sign-in screen with an "ask an administrator to invite you" notice —
+uninvited users cannot log in.
 
 The backend `/api/v1/users` endpoints remain anonymous: they validate structure (role values,
 church existence, email format) but not the caller. Role rules are enforced in the client only

@@ -14,8 +14,9 @@ email is sent — with invite status tracked (invited → active on first login 
 - Temp "admin" login (env credentials) is a built-in global admin with NO stored record; global
   admin sees all churches implicitly.
 - Church filtering happens client-side (backend stays anonymous).
-- Unprovisioned Google users: signed in but see an empty church list with a "contact an
-  administrator" notice.
+- Unprovisioned Google users (no matching active user record) are blocked at sign-in: Login.tsx
+  checks `GET /users/{email}` before establishing a session and shows an "ask an administrator to
+  invite you" notice instead of logging in.
 - Invite UI offers all three roles to global admins (including global-admin, which hides the
   church picker and sends empty ChurchIds); church admins only see church-admin/user options
   scoped to their own churches.
