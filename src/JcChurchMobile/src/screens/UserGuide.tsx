@@ -28,6 +28,29 @@ function withGuideAssetUrls(markdown: string) {
   );
 }
 
+function GuideImage({ uri, alt, width }: { uri: string; alt: string; width: number }) {
+  const [aspectRatio, setAspectRatio] = useState(932 / 430);
+
+  return (
+    <Image
+      source={{ uri }}
+      accessibilityLabel={alt}
+      resizeMode="contain"
+      onLoad={({ nativeEvent }) => {
+        const { width: imageWidth, height: imageHeight } = nativeEvent.source;
+        if (imageWidth > 0 && imageHeight > 0) setAspectRatio(imageHeight / imageWidth);
+      }}
+      style={{
+        width,
+        height: width * aspectRatio,
+        marginVertical: 10,
+        borderWidth: 1,
+        borderColor: colors.line,
+      }}
+    />
+  );
+}
+
 export default function UserGuide() {
   const { page } = useLocalSearchParams<{ page?: string | string[] }>();
   const router = useRouter();
@@ -38,18 +61,11 @@ export default function UserGuide() {
   const imageWidth = Math.min(width - 40, 780);
   const rules: RenderRules = {
     image: (node: ASTNode) => (
-      <Image
+      <GuideImage
         key={node.key}
-        source={{ uri: node.attributes.src }}
-        accessibilityLabel={node.attributes.alt}
-        resizeMode="contain"
-        style={{
-          width: imageWidth,
-          height: imageWidth * (932 / 430),
-          marginVertical: 10,
-          borderWidth: 1,
-          borderColor: colors.line,
-        }}
+        uri={node.attributes.src}
+        alt={node.attributes.alt}
+        width={imageWidth}
       />
     ),
   };
