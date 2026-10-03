@@ -31,7 +31,7 @@ When you open the app (or are signed out), you see the **Sign in** screen:
 
 ## Screen 2 — Choose your church
 
-If your account is linked to **one** church, you go straight to it. If you serve
+If your account is linked to **one** church, you go straight to home screen. If you serve
 at **multiple** churches, you'll see the church list first:
 
 ![Choose your church list showing Arumdaun Presbyterian Church](images/01-choose-church.png)
