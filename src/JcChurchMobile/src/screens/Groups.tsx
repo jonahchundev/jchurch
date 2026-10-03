@@ -71,7 +71,7 @@ function ChurchGroups({ churchId }: { churchId: string }) {
       actions={
         <>
         <IconButton
-          icon="swap-vertical-outline"
+          icon="cloud-download-outline"
           label="Import or export CSV"
           onPress={() => setImportExportOpen(true)}
         />

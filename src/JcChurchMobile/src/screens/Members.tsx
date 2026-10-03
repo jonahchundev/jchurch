@@ -108,7 +108,7 @@ export default function Members() {
             />
           )}
           <IconButton
-            icon="swap-vertical-outline"
+            icon="cloud-download-outline"
             label="Import or export CSV"
             onPress={() => setImportExportOpen(true)}
           />
