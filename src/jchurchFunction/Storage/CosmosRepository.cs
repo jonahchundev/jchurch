@@ -30,6 +30,7 @@ public sealed class CosmosJsonSerializer : CosmosSerializer
 public sealed class CosmosRepository<T>(CosmosClient client, CosmosSettings settings, TimeProvider? timeProvider = null) : IRepository<T> where T : Document
 {
     private sealed record MemberDatePosition(int Phase, string? ContinuationToken);
+    private sealed record AttendanceMemberSummaryRow(string Key, int CheckedInCount);
 
     private readonly Container container = client.GetContainer(settings.Database, typeof(T) == typeof(Attendance) ? "attendance" : "directory");
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
@@ -208,18 +209,24 @@ public sealed class CosmosRepository<T>(CosmosClient client, CosmosSettings sett
             _ => throw new ApiException(400, "invalid_query", "groupBy must be event, occurrence, member, group, or day.")
         };
         var (clauses, parameters) = BuildFilters(query, null);
-        var definition = new QueryDefinition($"SELECT {key} AS key, COUNT(1) AS checkedInCount, COUNT(DISTINCT c.memberId) AS uniqueMemberCount FROM {from} WHERE {string.Join(" AND ", clauses)} GROUP BY {group}");
+        // Cosmos SQL does not support COUNT(DISTINCT ...). Grouping by member yields one row per
+        // report key/member pair, so the final aggregation can count distinct members locally.
+        var definition = new QueryDefinition($"SELECT {key} AS key, c.memberId, COUNT(1) AS checkedInCount FROM {from} WHERE {string.Join(" AND ", clauses)} GROUP BY {group}, c.memberId");
         foreach (var parameter in parameters) definition.WithParameter(parameter.Key, parameter.Value);
-        using var iterator = container.GetItemQueryIterator<AttendanceSummaryRow>(definition, requestOptions: new QueryRequestOptions
+        using var iterator = container.GetItemQueryIterator<AttendanceMemberSummaryRow>(definition, requestOptions: new QueryRequestOptions
         {
             PartitionKey = Partition(query.ChurchId, query.OccurrenceId)
         });
-        var rows = new List<AttendanceSummaryRow>();
+        var memberRows = new List<AttendanceMemberSummaryRow>();
         while (iterator.HasMoreResults)
         {
-            rows.AddRange(await iterator.ReadNextAsync(cancellationToken));
-            if (rows.Count > MaxSummaryGroups) throw new ApiException(400, "too_many_results", "Summary produced too many groups; narrow the filters.");
+            memberRows.AddRange(await iterator.ReadNextAsync(cancellationToken));
         }
+        var rows = memberRows
+            .GroupBy(row => row.Key, StringComparer.Ordinal)
+            .Select(group => new AttendanceSummaryRow(group.Key, group.Sum(row => row.CheckedInCount), group.Count()))
+            .ToList();
+        if (rows.Count > MaxSummaryGroups) throw new ApiException(400, "too_many_results", "Summary produced too many groups; narrow the filters.");
         // GROUP BY results have no defined order; sort by key so summaries are deterministic across repositories.
         rows.Sort((left, right) => string.CompareOrdinal(left.Key, right.Key));
         return rows;

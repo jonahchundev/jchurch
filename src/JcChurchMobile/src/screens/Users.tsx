@@ -58,11 +58,16 @@ export default function Users() {
   const churches = churchesQuery.data ?? [];
   const churchName = (id: string) => churches.find((church) => church.id === id)?.name ?? "Archived church";
   const debounced = useDebounce(search).toLowerCase();
-  const visible = filterManagedUsers(usersQuery.data ?? [], roleInfo).filter((user) =>
-    debounced
-      ? user.email.toLowerCase().includes(debounced) || (user.displayName ?? "").toLowerCase().includes(debounced)
-      : true,
-  );
+  const visible = filterManagedUsers(usersQuery.data ?? [], roleInfo)
+    .filter((user) =>
+      debounced
+        ? user.email.toLowerCase().includes(debounced) || (user.displayName ?? "").toLowerCase().includes(debounced)
+        : true,
+    )
+    .toSorted((left, right) => {
+      const byName = (left.displayName || left.email).localeCompare(right.displayName || right.email);
+      return byName || left.email.localeCompare(right.email);
+    });
 
   if (roleReady && !canManageUsers(roleInfo)) {
     return (

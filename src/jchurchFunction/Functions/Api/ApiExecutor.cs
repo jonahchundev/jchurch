@@ -42,7 +42,7 @@ internal static class ApiExecutor
         catch (CosmosException error)
         {
             var status = error.StatusCode == HttpStatusCode.TooManyRequests ? 429 : 503;
-            var response = await Problem(request, status, "storage_unavailable", "Storage could not confirm the operation. Retry the same check-in to recover its receipt.", context.InvocationId, cancellationToken);
+            var response = await Problem(request, status, "storage_unavailable", "Storage could not confirm the operation. Retry the request.", context.InvocationId, cancellationToken);
             response.Headers.Add("Retry-After", Math.Max(1, (int)Math.Ceiling(error.RetryAfter?.TotalSeconds ?? 1)).ToString(CultureInfo.InvariantCulture));
             logger.LogWarning("Storage failure with status {Status}; invocation {InvocationId}", (int)error.StatusCode, context.InvocationId);
             return response;
@@ -51,7 +51,7 @@ internal static class ApiExecutor
         catch (Exception error)
         {
             logger.LogError("Unhandled {ErrorType}; invocation {InvocationId}", error.GetType().Name, context.InvocationId);
-            return await Problem(request, 503, "unavailable", "The operation could not be confirmed. Retry check-in with the same IDs.", context.InvocationId, cancellationToken);
+            return await Problem(request, 503, "unavailable", "The operation could not be confirmed. Retry the request.", context.InvocationId, cancellationToken);
         }
     }
 
