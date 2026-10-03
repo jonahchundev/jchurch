@@ -32,7 +32,7 @@ After signing in and choosing a church, the app shows five tabs at the bottom:
 The header shows the church name, a **switch church** button ([<]) when you
 belong to more than one church, and your account chip (name/photo) on the right.
 
-> All screenshots in this guide were captured on a tablet (iPad) screen. The app
+> All screenshots in this guide were captured on an iPhone Pro Max screen. The app
 > looks and works the same on phones and on the web; the layout adjusts to the
 > screen size.
 

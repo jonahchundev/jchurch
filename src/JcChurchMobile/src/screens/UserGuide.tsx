@@ -45,7 +45,7 @@ export default function UserGuide() {
         resizeMode="contain"
         style={{
           width: imageWidth,
-          height: imageWidth * (1180 / 820),
+          height: imageWidth * (932 / 430),
           marginVertical: 10,
           borderWidth: 1,
           borderColor: colors.line,

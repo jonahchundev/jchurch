@@ -1,6 +1,6 @@
 import { defineConfig } from "@playwright/test";
 
-// Tablet-viewport config for capturing user-guide screenshots.
+// iPhone Pro Max viewport config for capturing user-guide screenshots.
 // Run: npx playwright test -c playwright.tablet.config.ts
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -10,9 +10,10 @@ export default defineConfig({
   timeout: 90000,
   use: {
     baseURL: "http://localhost:8081",
-    // iPad (10th gen) portrait, 2x for crisp images.
-    viewport: { width: 820, height: 1180 },
-    deviceScaleFactor: 2,
+    // iPhone Pro Max portrait, 3x for crisp images.
+    viewport: { width: 430, height: 932 },
+    isMobile: true,
+    deviceScaleFactor: 3,
   },
-  projects: [{ name: "tablet", use: {} }],
+  projects: [{ name: "iphone-pro-max", use: {} }],
 });

@@ -6,7 +6,7 @@ import fs from "node:fs";
 // Captures real app screenshots for the user guide (user-guide/images), using
 // Arumdaun Presbyterian Church with the JHAFAM and AFAM groups and members from
 // the real export (members CSV). Runs against the Expo web dev server on :8081
-// with the API mocked, at an iPad viewport (see playwright.tablet.config.ts).
+// with the API mocked, at an iPhone Pro Max viewport (see playwright.tablet.config.ts).
 
 const IMG = path.resolve(process.cwd(), "../../user-guide/images");
 fs.mkdirSync(IMG, { recursive: true });
@@ -429,7 +429,7 @@ test("guide screenshots: members list, sort/filter, import-export", async ({ pag
   await page.getByRole("button", { name: "Close" }).first().click({ force: true });
 });
 
-test("guide screenshots: duplicate members", async ({ page }) => {
+test("guide screenshots: duplicate members", async ({ page }, testInfo) => {
   const duplicateEmma = {
     ...emma,
     id: "member_emma_choi_duplicate",
@@ -449,11 +449,11 @@ test("guide screenshots: duplicate members", async ({ page }) => {
   await seedAdmin(page);
   await page.goto(`/church/${alpha.id}/duplicates`);
   await expect(page.getByText("1 of 1 possible duplicate pair")).toBeVisible();
-  await shot(page, "04-duplicates");
+  if (testInfo.project.name !== "ipad") await shot(page, "04-duplicates");
   await page.getByRole("button", { name: "Review possible duplicate Emma Choi" }).click();
   await expect(page.getByRole("heading", { name: "Resolve duplicate" })).toBeVisible();
   await expect(page.getByText(/2 check-ins will move/)).toBeVisible();
-  await shot(page, "04-duplicate-review");
+  await shot(page, testInfo.project.name === "ipad" ? "04-duplicate-review-ipad" : "04-duplicate-review");
 });
 
 test("guide screenshots: member detail, edit, groups, update link, registration code", async ({ page }) => {

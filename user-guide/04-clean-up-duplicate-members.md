@@ -27,7 +27,13 @@ filter pairs by group or subgroup and change name order.
 1. Tap **Review** for a possible pair. The **Resolve duplicate** sheet compares
    both member records.
 
-![Resolve duplicate sheet showing the two member cards, field choices, attendance preview, and Merge button](images/04-duplicate-review.png)
+**iPhone Pro Max**
+
+![Resolve duplicate sheet on an iPhone Pro Max showing the two member cards, field choices, attendance preview, and Merge button](images/04-duplicate-review.png)
+
+**iPad**
+
+![Resolve duplicate sheet on an iPad showing the two member cards, field choices, attendance preview, and Merge button](images/04-duplicate-review-ipad.png)
 
 2. Tap the member card you want to keep. The selected card is marked
    **Keeping**; the other member will be archived.
