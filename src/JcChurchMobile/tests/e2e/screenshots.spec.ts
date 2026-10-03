@@ -401,6 +401,13 @@ test.beforeEach(async ({ page }) => {
   await mockApi(page);
 });
 
+test("guide screenshot: home overview", async ({ page }) => {
+  await seedAdmin(page);
+  await page.goto(`/church/${alpha.id}`);
+  await expect(page.getByRole("heading", { name: "Your church, together." })).toBeVisible();
+  await shot(page, "home");
+});
+
 test("guide screenshots: sign-in and church picker", async ({ page }) => {
   await page.goto("/login");
   await expect(page.getByRole("heading", { name: "Sign in" }).last()).toBeVisible();

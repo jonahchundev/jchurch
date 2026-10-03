@@ -21,7 +21,7 @@ screen by screen.
 
 After signing in and choosing a church, the app shows five tabs at the bottom:
 
-![Home screen on a tablet showing quick links and five bottom tabs](images/home.png)
+![Home screen on an iPhone Pro Max showing quick links and five bottom tabs](images/home.png)
 
 - **Home** — quick links: members, duplicates cleanup, groups, events, check-in.
 - **Members** — the member directory (see guides 2–5).
@@ -32,9 +32,9 @@ After signing in and choosing a church, the app shows five tabs at the bottom:
 The header shows the church name, a **switch church** button ([<]) when you
 belong to more than one church, and your account chip (name/photo) on the right.
 
-> All screenshots in this guide were captured on an iPhone Pro Max screen. The app
-> looks and works the same on phones and on the web; the layout adjusts to the
-> screen size.
+> All screenshots in this guide were captured on an iPhone Pro Max screen. The
+> app looks and works the same on tablets and on the web; the layout adjusts to
+> the screen size.
 
 ## Roles at a glance
 
