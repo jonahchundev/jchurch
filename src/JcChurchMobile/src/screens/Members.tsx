@@ -55,6 +55,17 @@ export function groupNames(member: Member, groups: Group[]) {
     .join(" / ");
 }
 
+export function sortedGroupsByName(groups: Group[]) {
+  return [...groups]
+    .sort((left, right) =>
+      left.name.localeCompare(right.name, undefined, { sensitivity: "base" }),
+    );
+}
+
+export function sortedActiveGroups(groups: Group[]) {
+  return sortedGroupsByName(groups.filter((group) => group.active));
+}
+
 export default function Members() {
   const { churchId, search: focusSearch } = useLocalSearchParams<{
     churchId: string;
@@ -204,8 +215,7 @@ export default function Members() {
           <View style={styles.stack}>
             <Label small>Group or subgroup</Label>
             <Label small muted>Leave all unchecked to show every group.</Label>
-            {(groups.data ?? [])
-              .filter((group) => group.active)
+            {sortedActiveGroups(groups.data ?? [])
               .map((group) => (
                 <Toggle
                   key={group.id}
@@ -669,11 +679,11 @@ function MemberEditor({
           name="groupIds"
           render={({ field }) => (
             <View style={{ gap: 2 }}>
-              {(groups.data ?? [])
-                .filter(
+              {sortedGroupsByName(
+                (groups.data ?? []).filter(
                   (group) => group.active || field.value.includes(group.id),
-                )
-                .map((group) => (
+                ),
+              ).map((group) => (
                   <Toggle
                     key={group.id}
                     label={`${group.parentGroupId ? `${groups.data?.find((parent) => parent.id === group.parentGroupId)?.name ?? "Group"} / ` : ""}${group.name}${!group.active ? " (archived)" : ""}`}

@@ -35,7 +35,7 @@ import {
   ViewTabs,
 } from "../ui";
 import { SessionList } from "./Events";
-import { groupNames, memberName } from "./Members";
+import { groupNames, memberName, sortedActiveGroups } from "./Members";
 import { AttendanceRoster } from "../reports/AttendanceRoster";
 import ScanCheckIn from "./ScanCheckIn";
 
@@ -490,8 +490,7 @@ function ActiveCheckIn({
           <View style={styles.stack}>
             <Label small>Group or subgroup</Label>
             <Label small muted>Leave all unchecked to show every member.</Label>
-            {(groups.data ?? [])
-              .filter((group) => group.active)
+            {sortedActiveGroups(groups.data ?? [])
               .map((group) => (
                 <Toggle
                   key={group.id}
