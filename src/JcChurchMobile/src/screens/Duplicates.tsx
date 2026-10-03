@@ -22,8 +22,10 @@ import {
   Page,
   QueryState,
   SearchBox,
+  SegmentedControl,
   Sheet,
   styles,
+  Toggle,
 } from "../ui";
 
 type MergePreview = { keeperCheckIns: number; loserCheckIns: number; movable: number; skipped: number };
@@ -38,16 +40,30 @@ export default function Duplicates() {
   const groups = useAll<Group>(churchPath(churchId, "groups"), { includeArchived: true });
   const [search, setSearch] = useState("");
   const debounced = useDebounce(search);
+  const [groupIds, setGroupIds] = useState<string[]>([]);
+  const [nameSort, setNameSort] = useState("asc");
+  const [sortOpen, setSortOpen] = useState(false);
   const [resolving, setResolving] = useState<CandidatePair | null>(null);
   const [notice, setNotice] = useState("");
 
   const candidates = useMemo(() => findDuplicateCandidates(members.data ?? []), [members.data]);
   const filtered = useMemo(() => {
     const term = debounced.trim().toLowerCase();
-    if (!term) return candidates;
-    return candidates.filter((pair) =>
-      memberName(pair.a).toLowerCase().includes(term) || memberName(pair.b).toLowerCase().includes(term));
-  }, [candidates, debounced]);
+    let pairs = candidates;
+    if (groupIds.length)
+      pairs = pairs.filter((pair) =>
+        [pair.a, pair.b].some((member) => (member.groupIds ?? []).some((id) => groupIds.includes(id))));
+    if (term)
+      pairs = pairs.filter((pair) =>
+        memberName(pair.a).toLowerCase().includes(term) || memberName(pair.b).toLowerCase().includes(term));
+    const direction = nameSort === "desc" ? -1 : 1;
+    pairs = [...pairs].sort((left, right) => {
+      const last = direction * left.a.lastName.localeCompare(right.a.lastName);
+      if (last !== 0) return last;
+      return direction * left.a.firstName.localeCompare(right.a.firstName);
+    });
+    return pairs;
+  }, [candidates, debounced, groupIds, nameSort]);
 
   if (roleReady && !canManageUsers(roleInfo))
     return (
@@ -75,7 +91,12 @@ export default function Duplicates() {
     >
       <View style={styles.stack}>
         {!!notice && <Notice>{notice}</Notice>}
-        <SearchBox value={search} onChange={setSearch} placeholder="Search candidates" />
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <SearchBox value={search} onChange={setSearch} placeholder="Search candidates" />
+          </View>
+          <IconButton icon="swap-vertical-outline" label="Sort and filter candidates" onPress={() => setSortOpen(true)} />
+        </View>
         <QueryState
           pending={members.isPending}
           error={members.error}
@@ -84,7 +105,7 @@ export default function Duplicates() {
           onRetry={() => void members.refetch()}
         />
         {!members.isPending && candidates.length > 0 && (
-          <Label muted>{candidates.length} possible duplicate {candidates.length === 1 ? "pair" : "pairs"}</Label>
+          <Label muted>{filtered.length} of {candidates.length} possible duplicate {candidates.length === 1 ? "pair" : "pairs"}</Label>
         )}
         {filtered.map((pair) => (
           <PairCard
@@ -95,6 +116,37 @@ export default function Duplicates() {
           />
         ))}
       </View>
+      {sortOpen && (
+        <Sheet title="Candidate sort and filter" onClose={() => setSortOpen(false)}>
+          <View style={styles.stack}>
+            <Label small>Group or subgroup</Label>
+            <Label small muted>Leave all unchecked to show every pair.</Label>
+            {(groups.data ?? [])
+              .filter((group) => group.active)
+              .map((group) => (
+                <Toggle
+                  key={group.id}
+                  compact
+                  label={
+                    group.parentGroupId
+                      ? `${groups.data?.find((parent) => parent.id === group.parentGroupId)?.name ?? "Group"} / ${group.name}`
+                      : group.name
+                  }
+                  value={groupIds.includes(group.id)}
+                  onChange={(checked) =>
+                    setGroupIds((current) =>
+                      checked ? [...current, group.id] : current.filter((id) => id !== group.id),
+                    )
+                  }
+                />
+              ))}
+            <SegmentedControl label="Name order" value={nameSort} onChange={setNameSort} options={[
+              { value: "asc", label: "A-Z" },
+              { value: "desc", label: "Z-A" },
+            ]} />
+          </View>
+        </Sheet>
+      )}
       {resolving && (
         <ResolveDuplicate
           churchId={churchId!}
