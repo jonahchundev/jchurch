@@ -16,11 +16,11 @@ import {
   colors,
   Heading,
   Icon,
+  IconButton,
   Label,
   Notice,
   Page,
   QueryState,
-  Row,
   SearchBox,
   Sheet,
   styles,
@@ -65,6 +65,13 @@ export default function Duplicates() {
       eyebrow="Members"
       onRefresh={() => void members.refetch()}
       refreshing={members.isRefetching}
+      actions={
+        <IconButton
+          icon="arrow-back-outline"
+          label="Back to members"
+          onPress={() => router.back()}
+        />
+      }
     >
       <View style={styles.stack}>
         {!!notice && <Notice>{notice}</Notice>}
