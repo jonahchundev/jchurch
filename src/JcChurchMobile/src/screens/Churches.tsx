@@ -106,7 +106,7 @@ export default function Churches({ manage = false }: { manage?: boolean }) {
             />
           ) : undefined
         ) : (
-          <UserChip name={displayName} subtitle={user?.name && user.email ? user.email : undefined} picture={user?.picture} onPress={() => router.push("/settings")} />
+          <UserChip name={displayName} picture={user?.picture} onPress={() => router.push("/settings")} />
         )
       }
     >
