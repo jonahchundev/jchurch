@@ -38,6 +38,8 @@ public sealed record Member : Document
     public string? AllergyDetail { get; init; }
     public string? ScanCode { get; init; }
     public string? ScanCodeFormat { get; init; }
+    // Server-managed photo marker: a new GUID per upload; presence means a photo exists. Set only via the member image endpoint.
+    public string? ImageVersion { get; init; }
     [JsonIgnore]
     public bool ScanCodeSpecified { get; init; }
     [JsonIgnore]

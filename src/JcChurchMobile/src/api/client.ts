@@ -176,6 +176,14 @@ export function createApi(
       const path = `/churches/${encodeURIComponent(churchId)}/occurrences/${encodeURIComponent(occurrenceId)}/scan-check-ins/status`;
       return (await request<ScanStatus>(path, { method: "POST", body: { scanCode }, signal })).data;
     },
+    async uploadMemberImage(churchId: string, memberId: string, upload: { contentType: string; data: string }) {
+      const path = `/churches/${encodeURIComponent(churchId)}/members/${encodeURIComponent(memberId)}/image`;
+      return (await request<{ imageVersion: string }>(path, { method: "PUT", body: upload })).data;
+    },
+    async deleteMemberImage(churchId: string, memberId: string) {
+      const path = `/churches/${encodeURIComponent(churchId)}/members/${encodeURIComponent(memberId)}/image`;
+      await request(path, { method: "DELETE" });
+    },
     async checkIn(churchId: string, occurrenceId: string, memberId: string) {
       const path = `/churches/${encodeURIComponent(churchId)}/occurrences/${encodeURIComponent(occurrenceId)}/check-ins`;
       try {

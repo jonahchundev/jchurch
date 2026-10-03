@@ -22,7 +22,11 @@ public static class Configuration
     public static IServiceCollection AddChurchServices(this IServiceCollection services, IConfiguration configuration)
     {
         ValidateSafety(configuration);
-        if (configuration["Storage:Provider"] == "InMemory") services.AddSingleton(typeof(IRepository<>), typeof(InMemoryRepository<>));
+        if (configuration["Storage:Provider"] == "InMemory")
+        {
+            services.AddSingleton(typeof(IRepository<>), typeof(InMemoryRepository<>));
+            services.AddSingleton<IMemberImageStore, InMemoryMemberImageStore>();
+        }
         else
         {
             var endpoint = configuration["Cosmos:Endpoint"];
@@ -38,12 +42,14 @@ public static class Configuration
                 RequestTimeout = TimeSpan.FromSeconds(10)
             }));
             services.AddSingleton(typeof(IRepository<>), typeof(CosmosRepository<>));
+            services.AddSingleton<IMemberImageStore>(_ => new BlobMemberImageStore(configuration["Images:ConnectionString"], configuration["Images:BlobServiceUri"]));
         }
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<Repositories>();
         services.AddSingleton<DirectoryService>();
         services.AddSingleton<EventService>();
         services.AddSingleton<CheckInService>();
+        services.AddSingleton<MemberImageService>();
         services.AddSingleton<MemberCsvService>();
         services.AddSingleton<GroupCsvService>();
         services.AddSingleton<UserService>();

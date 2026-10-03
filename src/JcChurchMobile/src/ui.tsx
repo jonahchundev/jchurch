@@ -289,12 +289,42 @@ export function SearchBox({
     </View>
   );
 }
+export function Avatar({
+  uri,
+  size = 44,
+}: {
+  uri?: string | null;
+  size?: number;
+}) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [uri]);
+  return (
+    <View
+      style={[
+        styles.rowIcon,
+        { width: size, height: size, borderRadius: size / 2, overflow: "hidden" },
+      ]}
+    >
+      {uri && !failed ? (
+        <Image
+          source={{ uri }}
+          style={{ width: size, height: size }}
+          onError={() => setFailed(true)}
+          accessibilityLabel="Member photo"
+        />
+      ) : (
+        <Icon name="person-outline" size={Math.round(size * 0.55)} />
+      )}
+    </View>
+  );
+}
 export function Row({
   title,
   titleAccessory,
   subtitle,
   onPress,
   icon = "chevron-forward",
+  avatar,
   badge,
   badgeTone = "default",
   trailing,
@@ -305,6 +335,7 @@ export function Row({
   subtitle?: string;
   onPress?: () => void;
   icon?: IconName;
+  avatar?: ReactNode;
   badge?: string;
   badgeTone?: "default" | "danger";
   trailing?: ReactNode;
@@ -312,9 +343,11 @@ export function Row({
 }) {
   const body = (
     <>
-      <View style={styles.rowIcon}>
-        <Icon name={icon} />
-      </View>
+      {avatar ?? (
+        <View style={styles.rowIcon}>
+          <Icon name={icon} />
+        </View>
+      )}
       <View style={{ flex: 1, minWidth: 0, gap: 5 }}>
         <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
           <Text style={styles.rowTitle}>{title}</Text>

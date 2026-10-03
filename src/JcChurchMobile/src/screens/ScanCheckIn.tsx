@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { View } from "react-native";
 import { useQueryClient } from "@tanstack/react-query";
-import { api, churchPath } from "../api/hooks";
+import { api, churchPath, memberImageUrl } from "../api/hooks";
 import { ApiError, message } from "../api/client";
 import type { ScanResult } from "../api/types";
 import { ScanInput, useScanActive } from "../ScanCode";
 import { sessionTime } from "../domain";
-import { Button, Heading, Label, Notice, styles } from "../ui";
+import { Avatar, Button, Heading, Label, Notice, styles } from "../ui";
 
 export default function ScanCheckIn({ churchId, eventId, occurrenceId, timeZone, format, onLocked }: {
   churchId: string;
@@ -97,7 +97,14 @@ export default function ScanCheckIn({ churchId, eventId, occurrenceId, timeZone,
     <Heading>Scan check-in</Heading>
     <Label>{busy ? "Processing scan" : pending ? "Confirmation pending" : closed ? "Scanning stopped" : "Ready to scan"}</Label>
     <ScanInput format={format} disabled={busy || !!pending || closed || now < retryAt} onScan={code => void process(code)} />
-    {result && <Notice>{`${result.member.firstName} ${result.member.lastName}: ${result.already ? "Already checked in" : "Checked in"} · ${sessionTime(result.receipt.checkedInAt, timeZone)}`}</Notice>}
+    {result && (
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+        <Avatar uri={memberImageUrl(churchId, result.member.id, result.member.imageVersion)} />
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Notice>{`${result.member.firstName} ${result.member.lastName}: ${result.already ? "Already checked in" : "Checked in"} · ${sessionTime(result.receipt.checkedInAt, timeZone)}`}</Notice>
+        </View>
+      </View>
+    )}
     {!!error && <Notice error>{error}</Notice>}
     {now < retryAt && <Label>Retry in {Math.ceil((retryAt - now) / 1000)} seconds.</Label>}
     {!!pending && !busy && <>

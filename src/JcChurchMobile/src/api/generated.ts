@@ -36,6 +36,64 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description User management is anonymous and structural-only; role rules are client-enforced. Results are filtered in memory after the base page query. */
+        get: operations["listUsers"];
+        put?: never;
+        /** @description Pre-provision an invited user. Id and email are the normalized lowercase email; duplicate returns 409. New users start as invited. */
+        post: operations["createUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{email}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded email address; normalized to lowercase. */
+                email: components["parameters"]["email"];
+            };
+            cookie?: never;
+        };
+        get: operations["getUser"];
+        /** @description Update role, churchIds and displayName. Email and status are immutable; status changes only via claim. */
+        put: operations["updateUser"];
+        post?: never;
+        delete: operations["archiveUser"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{email}/claim": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded email address; normalized to lowercase. */
+                email: components["parameters"]["email"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Idempotent invited→active transition called by the client after first matching sign-in. Stamps claimedOn on first claim; already-active returns 200. 404 unknown user, 409 archived. */
+        post: operations["claimUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/churches": {
         parameters: {
             query?: never;
@@ -215,6 +273,28 @@ export interface paths {
         put: operations["updateMember"];
         post?: never;
         delete: operations["archiveMember"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/churches/{churchId}/members/{id}/image": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                churchId: components["parameters"]["churchId"];
+                id: components["parameters"]["id"];
+            };
+            cookie?: never;
+        };
+        /** @description Photo bytes with immutable caching; append ?v={imageVersion} so replacements are fetched fresh. 404 when the member has no photo. */
+        get: operations["getMemberImage"];
+        /** @description Upload or replace the member photo. Base64 JSON body; decoded image must be JPEG, PNG or WebP and at most 1 MB. Bumps the server-managed imageVersion; clients should re-read the member and load the image with ?v={imageVersion}. */
+        put: operations["uploadMemberImage"];
+        post?: never;
+        /** @description Remove the member photo and clear imageVersion. Idempotent. */
+        delete: operations["deleteMemberImage"];
         options?: never;
         head?: never;
         patch?: never;
@@ -536,6 +616,8 @@ export interface components {
             id: string;
             firstName: string;
             lastName: string;
+            /** @description Photo version; when set, load the photo via GET members/{id}/image?v={imageVersion}. */
+            readonly imageVersion?: string | null;
         };
         Document: {
             readonly id: string;
@@ -606,6 +688,8 @@ export interface components {
              * @enum {string|null}
              */
             scanCodeFormat?: "qr" | "code128" | null;
+            /** @description Server-managed photo version set only via the members/{id}/image endpoint; when set, the photo is at members/{id}/image?v={imageVersion}. */
+            readonly imageVersion?: string | null;
             firstName: string;
             lastName: string;
             /** @enum {string|null} */
@@ -665,6 +749,15 @@ export interface components {
         OccurrenceCheckInCount: {
             occurrenceId: string;
             checkedInCount: number;
+        };
+        MemberImageUpload: {
+            /** @enum {string} */
+            contentType: "image/jpeg" | "image/png" | "image/webp";
+            /**
+             * Format: byte
+             * @description Base64-encoded image; decoded size at most 1 MB. Request body capped at 1.4 MB.
+             */
+            data: string;
         };
         /** @description Blank Id creates a member; an Id matching an existing member updates it, otherwise a member is created with that Id. */
         MemberImportRow: {
@@ -738,6 +831,27 @@ export interface components {
             failed: number;
             results: components["schemas"]["GroupImportRowResult"][];
         };
+        UserInput: {
+            /**
+             * Format: email
+             * @description Identity key; normalized to lowercase and immutable after creation.
+             */
+            email: string;
+            /** @enum {string} */
+            role: "global-admin" | "church-admin" | "user";
+            /** @description Required for church-admin/user; must be empty for global-admin. */
+            churchIds?: string[];
+            displayName?: string | null;
+            /** @description Email of the inviting admin, or "admin" for the built-in global admin. */
+            invitedBy?: string;
+            /**
+             * @description Server-managed; transitions only via the claim endpoint.
+             * @enum {string}
+             */
+            readonly status?: "invited" | "active";
+            /** Format: date-time */
+            readonly claimedOn?: string | null;
+        };
     };
     responses: {
         /** @description Confirmed attendance and minimal member identity */
@@ -805,6 +919,12 @@ export interface components {
     parameters: {
         churchId: string;
         id: string;
+        /** @description URL-encoded email address; normalized to lowercase. */
+        email: string;
+        userRole: "global-admin" | "church-admin" | "user";
+        userStatus: "invited" | "active";
+        /** @description Filter users assigned to this church. */
+        userChurchId: string;
         /** @description Exact _etag from the last read; missing returns 428 and stale returns 412. */
         IfMatch: string;
         /** @description Case-insensitive name substring. */
@@ -860,6 +980,11 @@ export interface components {
                 "application/json": components["schemas"]["EventInput"];
             };
         };
+        User: {
+            content: {
+                "application/json": components["schemas"]["UserInput"];
+            };
+        };
     };
     headers: never;
     pathItems: never;
@@ -900,6 +1025,119 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    listUsers: {
+        parameters: {
+            query?: {
+                /** @description Case-insensitive name substring. */
+                search?: components["parameters"]["search"];
+                role?: components["parameters"]["userRole"];
+                status?: components["parameters"]["userStatus"];
+                /** @description Filter users assigned to this church. */
+                churchId?: components["parameters"]["userChurchId"];
+                pageSize?: components["parameters"]["pageSize"];
+                /** @description Opaque, URL-encoded token bound to the same filters and page size. Continue until null, including after empty Cosmos pages. */
+                continuationToken?: components["parameters"]["continuationToken"];
+                includeArchived?: components["parameters"]["includeArchived"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["Page"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    createUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["User"];
+        responses: {
+            201: components["responses"]["Created"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    getUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded email address; normalized to lowercase. */
+                email: components["parameters"]["email"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["Document"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    updateUser: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Exact _etag from the last read; missing returns 428 and stale returns 412. */
+                "If-Match": components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description URL-encoded email address; normalized to lowercase. */
+                email: components["parameters"]["email"];
+            };
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["User"];
+        responses: {
+            200: components["responses"]["Document"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    archiveUser: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Exact _etag from the last read; missing returns 428 and stale returns 412. */
+                "If-Match": components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description URL-encoded email address; normalized to lowercase. */
+                email: components["parameters"]["email"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Archived; the user record is retained */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    claimUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded email address; normalized to lowercase. */
+                email: components["parameters"]["email"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["Document"];
+            default: components["responses"]["Problem"];
         };
     };
     listChurches: {
@@ -1282,6 +1520,86 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Archived; attendance retained */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getMemberImage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                churchId: components["parameters"]["churchId"];
+                id: components["parameters"]["id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Photo bytes */
+            200: {
+                headers: {
+                    /** @description private, max-age=31536000, immutable */
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/jpeg": string;
+                    "image/png": string;
+                    "image/webp": string;
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    uploadMemberImage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                churchId: components["parameters"]["churchId"];
+                id: components["parameters"]["id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemberImageUpload"];
+            };
+        };
+        responses: {
+            /** @description New image version */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        imageVersion: string;
+                    };
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    deleteMemberImage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                churchId: components["parameters"]["churchId"];
+                id: components["parameters"]["id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Photo removed (or none existed) */
             204: {
                 headers: {
                     [name: string]: unknown;

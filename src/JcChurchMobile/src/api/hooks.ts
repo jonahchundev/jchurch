@@ -5,15 +5,20 @@ import { selectApiBaseUrl } from "./api-url";
 import { createApi } from "./client";
 import type { Filters } from "./types";
 
-export const api = createApi(
-  selectApiBaseUrl(Platform.OS, {
-    android: process.env.EXPO_PUBLIC_API_URL_ANDROID,
-    ios: process.env.EXPO_PUBLIC_API_URL_IOS,
-    web: process.env.EXPO_PUBLIC_API_URL_WEB,
-  }, process.env.NODE_ENV !== "production"),
-);
+const baseUrl = selectApiBaseUrl(Platform.OS, {
+  android: process.env.EXPO_PUBLIC_API_URL_ANDROID,
+  ios: process.env.EXPO_PUBLIC_API_URL_IOS,
+  web: process.env.EXPO_PUBLIC_API_URL_WEB,
+}, process.env.NODE_ENV !== "production");
+export const api = createApi(baseUrl);
 export const churchPath = (churchId: string, resource = "") =>
   `/churches/${encodeURIComponent(churchId)}${resource ? `/${resource}` : ""}`;
+
+// Photo URLs are built only when imageVersion is set; the ?v= token keeps caches fresh after replacement.
+export function memberImageUrl(churchId: string, memberId: string, imageVersion?: string | null): string | null {
+  if (!imageVersion) return null;
+  return `${baseUrl.replace(/\/$/, "")}${churchPath(churchId, `members/${encodeURIComponent(memberId)}/image`)}?v=${encodeURIComponent(imageVersion)}`;
+}
 
 export function useDebounce(value: string) {
   const [debounced, setDebounced] = useState(value);
