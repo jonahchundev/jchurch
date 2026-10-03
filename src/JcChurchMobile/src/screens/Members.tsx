@@ -40,11 +40,13 @@ export const memberName = (member: Member) =>
     .filter(Boolean)
     .join(" ");
 export function groupNames(member: Member, groups: Group[]) {
-  return (member.groupIds ?? [])
+  const assignedGroupIds = member.groupIds ?? [];
+  return assignedGroupIds
     .map((id) => {
       const group = groups.find((candidate) => candidate.id === id);
       if (!group) return "Archived group";
       if (!group.parentGroupId) return group.name;
+      if (assignedGroupIds.includes(group.parentGroupId)) return group.name;
       const parent = groups.find(
         (candidate) => candidate.id === group.parentGroupId,
       );
