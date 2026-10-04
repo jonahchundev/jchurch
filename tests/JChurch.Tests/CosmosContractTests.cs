@@ -5,7 +5,9 @@ using Microsoft.Azure.Cosmos;
 using Xunit;
 
 namespace JChurch.Tests;
-
+/// <summary>
+/// Integration tests for Cosmos DB repositories.
+/// </summary>  
 public sealed class CosmosFactAttribute : FactAttribute
 {
     public CosmosFactAttribute()
