@@ -4,7 +4,9 @@ using JChurch.Domain;
 using Microsoft.Azure.Cosmos;
 
 namespace JChurch.Storage;
-
+/// <summary>
+/// Custom JSON serializer for Cosmos DB that handles unmapped members and type validation.
+/// </summary>
 public sealed class CosmosJsonSerializer : CosmosSerializer
 {
     private static readonly JsonSerializerOptions Options = new(Json.Options)
