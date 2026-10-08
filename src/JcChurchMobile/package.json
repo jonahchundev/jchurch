@@ -10,7 +10,7 @@
     "android": "expo start --android --localhost",
     "web": "npm run prepare:user-guide && expo start --web --localhost",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run tests/client.test.ts tests/duplicates.test.ts tests/reportRange.test.ts",
+    "test": "vitest run tests/client.test.ts tests/duplicates.test.ts tests/reportRange.test.ts tests/rosterSort.test.ts",
     "test:e2e": "playwright test",
     "generate:api": "openapi-typescript ../jchurchFunction/openapi.json -o src/api/generated.ts",
     "export:web": "npm run prepare:user-guide && expo export --platform web",

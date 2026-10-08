@@ -4,14 +4,15 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { DateTime } from "luxon";
 import { api, churchPath, useDebounce, useList } from "../api/hooks";
-import type { Attendance, Member, Occurrence } from "../api/types";
+import type { Attendance, Group, Member, Occurrence } from "../api/types";
+import { useAll } from "../api/hooks";
 import { useEvents, useSummary } from "../reports/api";
 import { ExportMenu } from "../reports/export";
 import { presetRange, ReportFilters, type ReportRange } from "../reports/ReportFilters";
 import { StatGrid } from "../reports/StatGrid";
 import { SvgBars } from "../reports/SvgBars";
 import { sessionTime } from "../domain";
-import { memberName } from "./Members";
+import { memberName, sortedActiveGroups } from "./Members";
 import {
   Heading,
   IconButton,
@@ -21,7 +22,10 @@ import {
   QueryState,
   Row,
   SearchBox,
+  SegmentedControl,
+  Sheet,
   styles,
+  Toggle,
 } from "../ui";
 
 // Member-level report: totals, per-event bars, and the full chronological history.
@@ -32,10 +36,20 @@ export default function MemberReport() {
   useEffect(() => setMemberId(params.memberId ?? ""), [params.memberId]);
   const [range, setRange] = useState<ReportRange>(() => presetRange("90d"));
   const [search, setSearch] = useState("");
+  const [groupIds, setGroupIds] = useState<string[]>([]);
+  const [nameSort, setNameSort] = useState("asc");
+  const [createdOnSort, setCreatedOnSort] = useState("");
+  const [sortOpen, setSortOpen] = useState(false);
 
   const picker = useList<Member>(churchPath(params.churchId, "members"), {
     search: useDebounce(search),
+    groupIds: groupIds.length ? groupIds.join(",") : undefined,
+    nameSort,
+    createdOnSort: createdOnSort || undefined,
     pageSize: 5,
+  });
+  const groups = useAll<Group>(churchPath(params.churchId, "groups"), {
+    includeArchived: true,
   });
   const member = useQuery({
     queryKey: [churchPath(params.churchId, `members/${memberId}`)],
@@ -153,7 +167,12 @@ export default function MemberReport() {
         />
       ) : (
         <>
-          <SearchBox value={search} onChange={setSearch} placeholder="Search members" />
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <SearchBox value={search} onChange={setSearch} placeholder="Search members" />
+            </View>
+            <IconButton icon="swap-vertical-outline" label="Sort and filter members" onPress={() => setSortOpen(true)} />
+          </View>
           <QueryState
             pending={picker.isPending}
             error={picker.error}
@@ -232,6 +251,41 @@ export default function MemberReport() {
         </>
       )}
       {!memberId && !picker.isPending && <Label muted>Select a member to see their attendance.</Label>}
+      {sortOpen && (
+        <Sheet title="Member sort and filter" onClose={() => setSortOpen(false)}>
+          <View style={styles.stack}>
+            <Label small>Group or subgroup</Label>
+            <Label small muted>Leave all unchecked to show every member.</Label>
+            {sortedActiveGroups(groups.data ?? [])
+              .map((group) => (
+                <Toggle
+                  key={group.id}
+                  compact
+                  label={
+                    group.parentGroupId
+                      ? `${groups.data?.find((parent) => parent.id === group.parentGroupId)?.name ?? "Group"} / ${group.name}`
+                      : group.name
+                  }
+                  value={groupIds.includes(group.id)}
+                  onChange={(checked) =>
+                    setGroupIds((current) =>
+                      checked ? [...current, group.id] : current.filter((id) => id !== group.id),
+                    )
+                  }
+                />
+              ))}
+            <SegmentedControl label="Name order" value={nameSort} onChange={setNameSort} options={[
+              { value: "asc", label: "A-Z" },
+              { value: "desc", label: "Z-A" },
+            ]} />
+            <SegmentedControl label="Created date" value={createdOnSort} onChange={setCreatedOnSort} options={[
+              { value: "", label: "Off" },
+              { value: "newest", label: "Newest" },
+              { value: "oldest", label: "Oldest" },
+            ]} />
+          </View>
+        </Sheet>
+      )}
     </Page>
   );
 }
