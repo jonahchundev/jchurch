@@ -992,6 +992,162 @@ test("member sort sheet updates server filters and shows creation metadata", asy
   await expect(page.getByText(/^Registered /)).toBeVisible();
 });
 
+test("checked-in roster sorts and filters like the member list", async ({ page }) => {
+  const adults = { ...metadata("group_adults", alpha.id), name: "Adults", parentGroupId: null };
+  const casey = { ...secondMember, lastName: "Ash", createdOn: "2026-01-15T00:00:00.000Z" };
+  const jordanDated = { ...jordan, createdOn: "2026-09-01T00:00:00.000Z" };
+  const receiptFor = (member: { id: string }, groupIds: string[], id: string) => ({
+    ...metadata(id, alpha.id),
+    memberId: member.id,
+    eventId: sampleEvent.id,
+    occurrenceId: sampleSession.id,
+    checkedInAt: new Date().toISOString(),
+    groupIds,
+    inclusiveGroupIds: groupIds,
+  });
+  const receipts = [
+    receiptFor(jordan, [adults.id], "receipt_jordan"),
+    receiptFor(casey, [], "receipt_casey"),
+  ];
+  const attendanceQueries: URL[] = [];
+  await page.route("**/api/v1/**", async (route) => {
+    const url = new URL(route.request().url());
+    const path = url.pathname.replace("/api/v1", "");
+    let body: unknown = pageBody([]);
+    if (path === `/churches/${alpha.id}`) body = alpha;
+    else if (path === `/churches/${alpha.id}/events`) body = pageBody([sampleEvent]);
+    else if (path.endsWith(`/events/${sampleEvent.id}`)) body = sampleEvent;
+    else if (path.endsWith(`/occurrences/${sampleSession.id}`)) body = sampleSession;
+    else if (path.endsWith(`/events/${sampleEvent.id}/occurrence-check-in-counts`))
+      body = { items: [{ occurrenceId: sampleSession.id, checkedInCount: 2 }] };
+    else if (path.endsWith(`/events/${sampleEvent.id}/occurrences`)) body = pageBody([sampleSession]);
+    else if (path === `/churches/${alpha.id}/groups`) body = pageBody([adults]);
+    else if (path.endsWith("/members")) body = pageBody([jordanDated, casey]);
+    else if (path.endsWith(`/members/${jordan.id}`)) body = jordanDated;
+    else if (path.endsWith(`/members/${casey.id}`)) body = casey;
+    else if (path === `/churches/${alpha.id}/attendance`) {
+      attendanceQueries.push(url);
+      const groupFilter = url.searchParams.get("groupIds")?.split(",") ?? [];
+      body = pageBody(groupFilter.length
+        ? receipts.filter((receipt) => receipt.groupIds.some((id) => groupFilter.includes(id)))
+        : receipts);
+    }
+    await route.fulfill({ json: body });
+  });
+  const rosterOrder = async () => page.getByText(/^(Jordan Example|Casey Ash)$/).allTextContents();
+
+  await page.goto(`/church/${alpha.id}/check-in?eventId=${sampleEvent.id}&occurrenceId=${sampleSession.id}`);
+  await page.getByRole("button", { name: "Begin check-in", exact: true }).click();
+  await page.getByRole("tab", { name: "Checked in", exact: true }).click();
+  // Default name order matches the member list: A-Z by last name, then first name.
+  await expect.poll(rosterOrder).toEqual(["Casey Ash", "Jordan Example"]);
+
+  await page.getByRole("button", { name: "Sort and filter checked-in members", exact: true }).click();
+  await expect(page.getByText("Checked-in sort and filter", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Name order: Z-A", exact: true }).click();
+  await expect.poll(rosterOrder).toEqual(["Jordan Example", "Casey Ash"]);
+  await page.getByRole("button", { name: "Name order: A-Z", exact: true }).click();
+  await page.getByRole("button", { name: "Created date: Newest", exact: true }).click();
+  await expect.poll(rosterOrder).toEqual(["Jordan Example", "Casey Ash"]);
+  await page.getByRole("button", { name: "Created date: Oldest", exact: true }).click();
+  await expect.poll(rosterOrder).toEqual(["Casey Ash", "Jordan Example"]);
+  await page.getByRole("button", { name: "Created date: Off", exact: true }).click();
+
+  // Group filtering is server-side against the check-in-time group snapshot.
+  await page.getByLabel("Adults", { exact: true }).check();
+  await expect.poll(() => attendanceQueries.some((url) => url.searchParams.get("groupIds") === adults.id)).toBe(true);
+  await expect.poll(rosterOrder).toEqual(["Jordan Example"]);
+  await page.getByLabel("Adults", { exact: true }).uncheck();
+  await expect.poll(rosterOrder).toEqual(["Casey Ash", "Jordan Example"]);
+});
+
+test("by-member report picker sorts and filters like the member list", async ({ page }) => {
+  const adults = { ...metadata("group_adults", alpha.id), name: "Adults", parentGroupId: null };
+  const memberQueries: URL[] = [];
+  await page.route("**/api/v1/**", async (route) => {
+    const url = new URL(route.request().url());
+    const path = url.pathname.replace("/api/v1", "");
+    let body: unknown = pageBody([]);
+    if (path === `/churches/${alpha.id}`) body = alpha;
+    else if (path === `/churches/${alpha.id}/groups`) body = pageBody([adults]);
+    else if (path === `/churches/${alpha.id}/members`) {
+      memberQueries.push(url);
+      let rows = [jordan, secondMember];
+      const groupFilter = url.searchParams.get("groupIds")?.split(",") ?? [];
+      if (groupFilter.length) rows = rows.filter((member) => member.groupIds.some((id) => groupFilter.includes(id)));
+      body = pageBody(rows);
+    }
+    await route.fulfill({ json: body });
+  });
+
+  await page.goto(`/church/${alpha.id}/report-member`);
+  await expect(page.getByRole("button", { name: "Jordan Example", exact: true })).toBeVisible();
+  await expect.poll(() => memberQueries.some((url) => url.searchParams.get("nameSort") === "asc")).toBe(true);
+
+  await page.getByRole("button", { name: "Sort and filter members", exact: true }).click();
+  await expect(page.getByText("Member sort and filter", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Name order: Z-A", exact: true }).click();
+  await page.getByRole("button", { name: "Created date: Newest", exact: true }).click();
+  await expect.poll(() => memberQueries.some((url) =>
+    url.searchParams.get("nameSort") === "desc" && url.searchParams.get("createdOnSort") === "newest",
+  )).toBe(true);
+  await page.getByLabel("Adults", { exact: true }).check();
+  await expect.poll(() => memberQueries.some((url) => url.searchParams.get("groupIds") === adults.id)).toBe(true);
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(page.getByText("No members found.", { exact: true })).toBeVisible();
+});
+
+test("by-group report searches and sorts its member list", async ({ page }) => {
+  const adults = { ...metadata("group_adults", alpha.id), name: "Adults", parentGroupId: null, active: true };
+  const members = [
+    { ...jordan, firstName: "Jordan", lastName: "Example", createdOn: "2026-09-01T00:00:00.000Z" },
+    { ...secondMember, firstName: "Casey", lastName: "Ash", createdOn: "2026-01-15T00:00:00.000Z" },
+  ];
+  const summary = {
+    items: [
+      { key: jordan.id, checkedInCount: 5, uniqueMemberCount: 1 },
+      { key: secondMember.id, checkedInCount: 2, uniqueMemberCount: 1 },
+    ],
+  };
+  await page.route("**/api/v1/**", async (route) => {
+    const url = new URL(route.request().url());
+    const path = url.pathname.replace("/api/v1", "");
+    let body: unknown = pageBody([]);
+    if (path === `/churches/${alpha.id}`) body = alpha;
+    else if (path === `/churches/${alpha.id}/groups`) body = pageBody([adults]);
+    else if (path === `/churches/${alpha.id}/members`) body = pageBody(members);
+    else if (path === `/churches/${alpha.id}/events`) body = pageBody([]);
+    else if (path === `/churches/${alpha.id}/attendance/summary`) body = summary;
+    await route.fulfill({ json: body });
+  });
+  const memberOrder = async () =>
+    page.getByText(/^(Jordan Example|Casey Ash)$/).allTextContents();
+
+  await page.goto(`/church/${alpha.id}/report-group`);
+  await page.getByLabel("Group", { exact: true }).selectOption(adults.id);
+  // Default order is by check-in count descending: Jordan (5) before Casey (2).
+  await expect.poll(memberOrder).toEqual(["Jordan Example", "Casey Ash"]);
+
+  // Search narrows the list.
+  await page.getByRole("textbox", { name: "Search members", exact: true }).fill("casey");
+  await expect.poll(memberOrder).toEqual(["Casey Ash"]);
+  await page.getByRole("textbox", { name: "Search members", exact: true }).fill("");
+
+  // Name order overrides the count ordering.
+  await page.getByRole("button", { name: "Sort and filter members", exact: true }).click();
+  await expect(page.getByText("Member sort and filter", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Name order: A-Z", exact: true }).click();
+  await expect.poll(memberOrder).toEqual(["Casey Ash", "Jordan Example"]);
+  await page.getByRole("button", { name: "Name order: Z-A", exact: true }).click();
+  await expect.poll(memberOrder).toEqual(["Jordan Example", "Casey Ash"]);
+
+  // Created date orders by the member's creation timestamp.
+  await page.getByRole("button", { name: "Name order: Off", exact: true }).click();
+  await page.getByRole("button", { name: "Created date: Newest", exact: true }).click();
+  await expect.poll(memberOrder).toEqual(["Jordan Example", "Casey Ash"]);
+  await page.getByRole("button", { name: "Created date: Oldest", exact: true }).click();
+  await expect.poll(memberOrder).toEqual(["Casey Ash", "Jordan Example"]);
+});
 // User management: a global admin (temp "admin" login) can invite a user,
 // see the Invited badge, and the claim endpoint flips the record to Active.
 test("global admin invites a user and the invite can be claimed", async ({ page }) => {
