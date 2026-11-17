@@ -253,13 +253,42 @@ public sealed class CosmosRepository<T>(CosmosClient client, CosmosSettings sett
         using var response = await batch.ExecuteAsync(cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
-            var status = response.StatusCode;
+            var status = BatchFailure(response);
             if (status is HttpStatusCode.NotFound) throw new ApiException(404, "not_found", "The check-in to move was not found.");
             if (status is HttpStatusCode.PreconditionFailed) throw new ApiException(412, "stale_version", "ETag is stale.");
             if (status is HttpStatusCode.Conflict) throw new ApiException(409, "already_exists", "The kept member already has a check-in for this occurrence.");
             throw new ApiException((int)status, "transfer_failed", "The check-in could not be moved.");
         }
         return keeper with { CreatedOn = now, UpdatedOn = now };
+    }
+
+    public async Task Deduplicate(T loser, T keeper, CancellationToken cancellationToken = default)
+    {
+        if (loser is not Attendance removed || keeper is not Attendance kept || removed.Active || !kept.Active ||
+            removed.Id == kept.Id || removed.ChurchId != kept.ChurchId || removed.OccurrenceId != kept.OccurrenceId || removed.OccurrenceId is null)
+            throw new ApiException(400, "invalid_request", "Deduplication requires an inactive duplicate and an active keeper in the same occurrence.");
+        if (string.IsNullOrWhiteSpace(loser.ETag) || loser.ETag == "*" || string.IsNullOrWhiteSpace(keeper.ETag) || keeper.ETag == "*")
+            throw new ApiException(412, "stale_version", "Exact check-in ETags are required.");
+        using var response = await container.CreateTransactionalBatch(Partition(removed.ChurchId, removed.OccurrenceId))
+            .ReplaceItem(keeper.Id, keeper, new TransactionalBatchItemRequestOptions { IfMatchEtag = keeper.ETag })
+            .ReplaceItem(loser.Id, loser with { UpdatedOn = clock.GetUtcNow() }, new TransactionalBatchItemRequestOptions { IfMatchEtag = loser.ETag })
+            .ExecuteAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            var status = BatchFailure(response);
+            throw new ApiException((int)status, status == HttpStatusCode.PreconditionFailed ? "stale_version" : "deduplicate_failed",
+                "A check-in changed or could not be deduplicated. Reload and review the merge.");
+        }
+    }
+
+    private static HttpStatusCode BatchFailure(TransactionalBatchResponse response)
+    {
+        for (var index = 0; index < response.Count; index++)
+        {
+            var status = response[index].StatusCode;
+            if ((int)status >= 400 && status != HttpStatusCode.FailedDependency) return status;
+        }
+        return response.StatusCode;
     }
 
     // Deletes every document for churchId in this container: for Attendance, a churchId-only partition key spans all occurrenceId sub-partitions.

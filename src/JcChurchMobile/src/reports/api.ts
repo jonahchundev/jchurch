@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { api, churchPath } from "../api/hooks";
 import { queryString } from "../api/client";
+import { loadAttendanceSequence } from "./attendanceSequenceData";
+import { validSequenceRange } from "./attendanceSequence";
 import type {
   AttendanceSummaryRow,
   ChurchEvent,
@@ -11,6 +13,17 @@ import type {
 } from "../api/types";
 
 export type GroupBy = "event" | "occurrence" | "member" | "group" | "day";
+
+export function useAttendanceSequence(churchId: string, eventId: string, from?: string, to?: string, enabled = true) {
+  const root = churchPath(churchId);
+  return useQuery({
+    queryKey: [`${root}/attendance`, "sequence", eventId, from, to],
+    queryFn: ({ signal }) => loadAttendanceSequence(api, root, eventId, from!, to!, signal),
+    enabled: enabled && !!eventId && validSequenceRange(from, to),
+    staleTime: 0,
+    refetchOnWindowFocus: "always",
+  });
+}
 
 // Reference-data and summary hooks shared by the four report screens. These are
 // single-shot queries (no infinite pagination) and stay disabled until a required

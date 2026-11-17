@@ -111,5 +111,16 @@ internal static class RepositoryContract
         Assert.Equal([new AttendanceSummaryRow("occurrence", 1, 1), new AttendanceSummaryRow("occurrence2", 2, 2)], await attendance.Summarize(summaryQuery, "occurrence"));
         Assert.Equal([new AttendanceSummaryRow("2026-09-20", 1, 1), new AttendanceSummaryRow("2026-09-27", 2, 2)], await attendance.Summarize(summaryQuery, "day"));
         Assert.Equal(400, (await Assert.ThrowsAsync<ApiException>(() => attendance.Summarize(summaryQuery, "bogus"))).Status);
+
+        var duplicate = (await attendance.Get(church, "occurrence2_member_c", "occurrence2"))!;
+        var kept = (await attendance.Get(church, "occurrence2_member_b", "occurrence2"))!;
+        var undone = await attendance.Replace(kept with { Active = false }, kept.ETag);
+        Assert.Equal(412, (await Assert.ThrowsAsync<ApiException>(() => attendance.Deduplicate(duplicate with { Active = false }, kept))).Status);
+        Assert.True((await attendance.Get(church, duplicate.Id, "occurrence2"))!.Active);
+        kept = await attendance.Replace(undone with { Active = true }, undone.ETag);
+        await attendance.Deduplicate(duplicate with { Active = false }, kept);
+        Assert.False((await attendance.Get(church, duplicate.Id, "occurrence2"))!.Active);
+        Assert.Equal(kept.CheckedInAt, (await attendance.Get(church, kept.Id, "occurrence2"))!.CheckedInAt);
+        Assert.Equal(1, (await attendance.ActiveCheckInCounts(church, "event")).Single(row => row.OccurrenceId == "occurrence2").CheckedInCount);
     }
 }

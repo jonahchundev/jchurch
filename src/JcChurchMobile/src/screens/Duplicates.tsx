@@ -1,10 +1,10 @@
 import { useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { api, churchPath, memberImageUrl, useAll, useDebounce } from "../api/hooks";
-import { message } from "../api/client";
-import type { Group, Member } from "../api/types";
+import { ApiError, message } from "../api/client";
+import type { Group, Member, Page as ApiPage } from "../api/types";
 import { createdOnLabel, memberAge } from "../domain";
 import { findDuplicateCandidates, matchReasonText, type CandidatePair } from "../duplicates";
 import { groupNames, memberName } from "./Members";
@@ -142,7 +142,9 @@ export default function Duplicates() {
           onClose={() => setResolving(null)}
           onMerged={(result) => {
             setResolving(null);
-            setNotice(`Merged — ${result.checkInsMoved} check-in${result.checkInsMoved === 1 ? "" : "s"} moved${result.checkInsSkipped ? `, ${result.checkInsSkipped} already counted` : ""}.`);
+            setNotice(result
+              ? `Merged — ${result.checkInsMoved} check-in${result.checkInsMoved === 1 ? "" : "s"} moved${result.checkInsSkipped ? `, ${result.checkInsSkipped} already counted` : ""}.`
+              : "The other member is already archived.");
           }}
         />
       )}
@@ -220,36 +222,43 @@ function ResolveDuplicate({
   pair: CandidatePair;
   groups: Group[];
   onClose: () => void;
-  onMerged: (result: MergeResult) => void;
+  onMerged: (result: MergeResult | null) => void;
 }) {
   const client = useQueryClient();
   const membersPath = churchPath(churchId, "members");
   // The keeper is the member the surviving record keeps; default to the first of the pair.
   const [keepId, setKeepId] = useState<string>(pair.a.id);
+  const [currentPair, setCurrentPair] = useState(pair);
   const [picks, setPicks] = useState<PickState>(KEEPER_DEFAULT);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [needsReview, setNeedsReview] = useState(false);
+  const [uncertain, setUncertain] = useState(false);
 
-  const keeper = keepId === pair.a.id ? pair.a : pair.b;
-  const loser = keepId === pair.a.id ? pair.b : pair.a;
+  const keeper = keepId === currentPair.a.id ? currentPair.a : currentPair.b;
+  const loser = keepId === currentPair.a.id ? currentPair.b : currentPair.a;
   const mergePath = churchPath(churchId, `members/${encodeURIComponent(keeper.id)}/merge`);
 
   // Live preview of how many check-ins move / are skipped for the current keeper choice.
   const preview = useQuery<MergePreview>({
-    queryKey: [mergePath, "preview", loser.id],
+    queryKey: [mergePath, "preview", loser.id, keeper._etag, loser._etag],
     queryFn: ({ signal }) =>
-      api.save<MergePreview>(`${mergePath}?dryRun=true`, { loserId: loser.id }),
+      api.request<MergePreview>(`${mergePath}?dryRun=true`, { method: "POST", body: { loserId: loser.id }, signal }).then(response => response.data),
   });
 
   function pick<K extends keyof PickState>(field: K, value: PickState[K]) {
+    if (merge.isPending || recovery.isPending || needsReview) return;
     setPicks((current) => ({ ...current, [field]: value }));
   }
 
   function chooseKeeper(id: string) {
+    if (merge.isPending || recovery.isPending || needsReview) return;
     setKeepId(id);
     setPicks(KEEPER_DEFAULT);
     setConfirming(false);
     setError("");
+    setNotice("");
   }
 
   // Build the optional keeperUpdate from the field picks. Undefined when every pick is the keeper's own value.
@@ -273,22 +282,82 @@ function ResolveDuplicate({
     return { ...keeper, ...changes };
   }
 
+  function completed(archivedId: string, result: MergeResult | null) {
+    const memberQueries = { queryKey: [membersPath], exact: false };
+    void client.cancelQueries(memberQueries).catch(() => undefined);
+    client.setQueriesData<Member[] | InfiniteData<ApiPage<Member>>>(memberQueries, data => {
+      if (!data) return data;
+      if (Array.isArray(data)) return data.filter(member => member.id !== archivedId);
+      if ("pages" in data) return {
+        ...data,
+        pages: data.pages.map(page => ({ ...page, items: page.items.filter(member => member.id !== archivedId) })),
+      };
+      return data;
+    });
+    const root = churchPath(churchId);
+    void client.invalidateQueries({
+      predicate: query => {
+        const path = query.queryKey[0];
+        return typeof path === "string" && (
+          path === membersPath || path.startsWith(`${membersPath}/`) ||
+          path === `${root}/attendance` || path.startsWith(`${root}/attendance/`) ||
+          (path.startsWith(`${root}/events/`) && path.endsWith("/occurrence-check-in-counts"))
+        );
+      },
+    }).catch(() => undefined);
+    onMerged(result);
+  }
+
+  const recovery = useMutation({
+    mutationFn: async () => {
+      const [latestKeeper, latestLoser] = await Promise.all([
+        api.get<Member>(`${membersPath}/${encodeURIComponent(keeper.id)}`),
+        api.get<Member>(`${membersPath}/${encodeURIComponent(loser.id)}`),
+      ]);
+      if (!latestLoser.active) return { latestKeeper, latestLoser, counts: null };
+      if (!latestKeeper.active) throw new Error("The kept member is archived. Close this comparison and choose another pair.");
+      const counts = await api.save<MergePreview>(`${mergePath}?dryRun=true`, { loserId: latestLoser.id });
+      return { latestKeeper, latestLoser, counts };
+    },
+    onSuccess: ({ latestKeeper, latestLoser, counts }) => {
+      if (!latestLoser.active) {
+        completed(latestLoser.id, null);
+        return;
+      }
+      setCurrentPair(current => ({
+        ...current,
+        a: current.a.id === latestKeeper.id ? latestKeeper : latestLoser,
+        b: current.b.id === latestKeeper.id ? latestKeeper : latestLoser,
+      }));
+      client.setQueryData([mergePath, "preview", latestLoser.id, latestKeeper._etag, latestLoser._etag], counts);
+      setPicks(KEEPER_DEFAULT);
+      setConfirming(false);
+      setNeedsReview(false);
+      setUncertain(false);
+      setError("");
+      setNotice("Latest records loaded. Review the remaining check-ins and field choices before confirming.");
+    },
+    onError: cause => setError(message(cause)),
+  });
+
   const merge = useMutation({
     mutationFn: () =>
-      api.save<MergeResult>(mergePath, {
+      api.request<MergeResult>(mergePath, { method: "POST", timeoutMs: 60000, body: {
         loserId: loser.id,
         loserEtag: loser._etag,
         keeperEtag: keeper._etag,
         keeperUpdate: keeperUpdate(),
-      }),
-    onSuccess: async (result) => {
-      await client.invalidateQueries({ queryKey: [membersPath] });
-      await client.invalidateQueries({ queryKey: [churchPath(churchId, "attendance")] });
-      onMerged(result);
-    },
+      } }).then(response => response.data),
+    onSuccess: result => completed(result.archived, result),
     onError: (cause) => {
       setConfirming(false);
-      setError(message(cause));
+      setNotice("");
+      setNeedsReview(true);
+      const unknownOutcome = cause instanceof ApiError && cause.uncertain;
+      setUncertain(unknownOutcome);
+      setError(unknownOutcome
+        ? "Merge completion could not be confirmed. Some changes may already be saved. Check status before trying again."
+        : message(cause));
     },
   });
 
@@ -297,14 +366,20 @@ function ResolveDuplicate({
     : null;
 
   return (
-    <Sheet title="Resolve duplicate" onClose={onClose} busy={merge.isPending}>
+    <Sheet title="Resolve duplicate" onClose={onClose} busy={merge.isPending || recovery.isPending}>
       <View style={styles.stack}>
         <Label muted>Tap the card to keep. Check-ins from the other member move to the keeper.</Label>
         {!!error && <Notice error>{error}</Notice>}
+        {!!notice && <Notice>{notice}</Notice>}
+        {needsReview && (
+          <Button secondary busy={recovery.isPending} onPress={() => recovery.mutate()}>
+            {uncertain ? "Check status" : "Reload and review"}
+          </Button>
+        )}
 
         <View style={local.cardsRow}>
-          <CompareCard member={pair.a} other={pair.b} churchId={churchId} groups={groups} selected={keepId === pair.a.id} onSelect={() => chooseKeeper(pair.a.id)} />
-          <CompareCard member={pair.b} other={pair.a} churchId={churchId} groups={groups} selected={keepId === pair.b.id} onSelect={() => chooseKeeper(pair.b.id)} />
+          <CompareCard member={currentPair.a} other={currentPair.b} churchId={churchId} groups={groups} selected={keepId === currentPair.a.id} onSelect={() => chooseKeeper(currentPair.a.id)} />
+          <CompareCard member={currentPair.b} other={currentPair.a} churchId={churchId} groups={groups} selected={keepId === currentPair.b.id} onSelect={() => chooseKeeper(currentPair.b.id)} />
         </View>
 
         <FieldPicks keeper={keeper} loser={loser} picks={picks} onPick={pick} />
@@ -328,7 +403,7 @@ function ResolveDuplicate({
             </Button>
           </View>
         ) : (
-          <Button onPress={() => setConfirming(true)} disabled={preview.isPending || !!preview.error}>
+          <Button onPress={() => setConfirming(true)} disabled={preview.isFetching || !!preview.error || needsReview || recovery.isPending}>
             {`Merge into ${memberName(keeper)}`}
           </Button>
         )}
