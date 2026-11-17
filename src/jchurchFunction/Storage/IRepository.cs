@@ -88,6 +88,9 @@ public interface IRepository<T> where T : Document
     // stale, 409 if the keeper receipt already exists and no keeperEtag was supplied.
     Task<T> Transfer(string churchId, string loserId, string loserEtag, T keeper, string? keeperEtag = null, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("Transfer requires an attendance repository.");
+
+    Task Deduplicate(T loser, T keeper, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("Deduplication requires an attendance repository.");
 }
 
 public static class Cursor

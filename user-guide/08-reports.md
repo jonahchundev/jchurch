@@ -63,6 +63,78 @@ Tap the report you want. Every report shares two controls:
 
 ![By Group report with coverage stats, daily trend chart, and per-member totals](images/08-report-group.png)
 
+### Attendance sequence
+
+Switch **Report view** to **Attendance sequence**, select one **Event**, and choose
+a complete date range of 93 days or fewer. The existing **Totals** view still supports
+longer ranges and all events.
+
+- Every current active group member appears, including members with no check-ins.
+  **Include subgroups** also includes current members of the group's subgroups.
+- Blue squares with a check mark mean **Checked in**. Red squares with a minus mean
+  **Absent**: the session has started and no active check-in is recorded. Red does
+  not distinguish excused from unexcused absence. A late check-in turns it blue;
+  an undone check-in no longer counts as attended.
+- Neutral squares indicate **Upcoming**, **Before registration**, or **Eligibility
+  unknown**. Older records without a registration timestamp remain unknown until
+  their first recorded attended session. Canceled sessions are excluded.
+- Sessions run oldest to newest, left to right and then onto the next row. Only
+  squares wrap; the date range stays once above the list. Columns adapt to screen
+  width with the same positions for every member.
+- **Latest streak: Absent 3 in a row** describes the final consecutive run ending
+  at the latest eligible started session in the selected range. Row breaks do not
+  reset streaks. Totals and streaks exclude future sessions, even if an early
+  check-in is already shown in blue.
+- Tap a square for its session date, status, event timezone, and check-in time.
+  Use the sort/filter menu to find recent absences, or search by member name.
+- Use **Refresh attendance sequence** or pull to refresh to reload check-ins.
+  The screen also changes missing check-ins to red when a session starts.
+- CSV and PDF exports contain textual per-member/session statuses, totals, and
+  latest streaks, rather than relying on color.
+
+#### Find members missing recently
+
+Open **Sort and filter members** in Attendance sequence. The initial view shows
+everyone. Choose the optional **Recently absent** preset to show members absent
+at their latest eligible session, with the longest current absence streak first
+and recent misses breaking ties.
+
+The **Attendance filter** menu offers:
+- **All members**.
+- **Absent at latest eligible session**.
+- **Consecutive absences**, with a minimum such as 2, 3, or a custom whole number.
+- **Missed recently**, for example at least 3 misses in the last 5 eligible sessions.
+- **No attendance in selected dates**, only for members with eligible sessions.
+
+Set **Sequence order** to member order, longest current absence streak, most recent
+misses, or longest since last attendance within selected dates. Name and registration
+ordering break ties. Members with no attendance in range appear first in last-attended
+order; those with no eligible sessions appear last for absence-based sorting.
+
+Use **Apply filters and sort** to commit changes. **Cancel** or closing the sheet
+discards drafts; **Reset filters and sort** restores the draft defaults, which must
+then be applied. **Clear attendance filters and sort** above the list immediately
+restores defaults without erasing the member search. The matching-member count and
+active settings stay visible above the sequences.
+
+Only started eligible sessions count, excluding canceled, future, before-registration
+and unknown cells. An ongoing session already counts and is marked **in progress**.
+With a short history, the actual sample size is shown: for example, 2 misses out of
+3 eligible sessions when 5 were requested. This does not meet a minimum of 3 misses.
+**Last attended** uses the attended session date in the event timezone, not the time
+someone entered a late check-in. It is limited to selected dates; **No attendance
+in selected dates** does not mean the person has never attended.
+
+Exports contain the filtered members in displayed order, the full selected session
+history, recent-window metrics, scoped last attendance, and active settings. Changing
+the recent session count does not shorten the squares or exported session history.
+
+This view uses today's group roster, not historical group membership. The **Totals**
+view continues to use group membership recorded at check-in time, so the two views
+can differ after members change groups. Only recorded event sessions appear; the
+report does not create missing historical sessions. A failed attendance load shows
+an error instead of inferring absences.
+
 ---
 
 ## Tips

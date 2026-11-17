@@ -223,6 +223,25 @@ public sealed class InMemoryRepository<T> : IRepository<T> where T : Document
         }
     }
 
+    public Task Deduplicate(T loser, T keeper, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (loser is not Attendance removed || keeper is not Attendance kept || removed.Active || !kept.Active ||
+            removed.Id == kept.Id || removed.ChurchId != kept.ChurchId || removed.OccurrenceId != kept.OccurrenceId || removed.OccurrenceId is null)
+            throw new ApiException(400, "invalid_request", "Deduplication requires an inactive duplicate and an active keeper in the same occurrence.");
+        lock (gate)
+        {
+            if (!documents.TryGetValue(Key(loser), out var currentLoser) || !documents.TryGetValue(Key(keeper), out var currentKeeper))
+                throw new ApiException(404, "not_found", "A check-in to deduplicate was not found.");
+            if (string.IsNullOrWhiteSpace(loser.ETag) || string.IsNullOrWhiteSpace(keeper.ETag) ||
+                loser.ETag != currentLoser.ETag || keeper.ETag != currentKeeper.ETag)
+                throw new ApiException(412, "stale_version", "A check-in changed during the merge.");
+            documents[Key(loser)] = Json.Clone(loser with { ETag = $"\"{Guid.NewGuid():N}\"", UpdatedOn = timeProvider.GetUtcNow() });
+            documents[Key(keeper)] = Json.Clone(keeper with { ETag = $"\"{Guid.NewGuid():N}\"" });
+        }
+        return Task.CompletedTask;
+    }
+
     public Task Purge(string churchId, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();

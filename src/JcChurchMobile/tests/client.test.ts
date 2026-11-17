@@ -12,6 +12,43 @@ import type { AppRole, Church, User } from "../src/api/types";
 import { canManageUsers, filterChurches, filterManagedUsers, isGlobalAdmin, resolveRole, type RoleInfo } from "../src/auth/roles";
 
 describe("API contracts", () => {
+  it("supports a bounded per-request timeout without changing the default", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetcher = vi.fn<typeof fetch>((_input, options) => new Promise((_resolve, reject) => {
+        options?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+      }));
+      const client = createApi("", fetcher, 15);
+      const extended = client.request("/merge", { method: "POST", timeoutMs: 60 });
+      const extendedFailure = expect(extended).rejects.toMatchObject({ status: 0 });
+      await vi.advanceTimersByTimeAsync(15);
+      expect(fetcher.mock.calls[0]?.[1]?.signal?.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(45);
+      await extendedFailure;
+
+      const normal = client.request("/members");
+      const normalFailure = expect(normal).rejects.toMatchObject({ status: 0 });
+      await vi.advanceTimersByTimeAsync(15);
+      await normalFailure;
+      expect(fetcher).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("cancels a superseded merge preview using its query signal", async () => {
+    const fetcher = vi.fn<typeof fetch>((_input, options) => new Promise((_resolve, reject) => {
+      options?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+    }));
+    const controller = new AbortController();
+    const pending = createApi("", fetcher).request("/merge?dryRun=true", { method: "POST", signal: controller.signal });
+    const failure = expect(pending).rejects.toMatchObject({ status: 0 });
+    controller.abort();
+    await failure;
+    expect(fetcher.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
   it("selects arbitrary platform API bases and preserves web paths", () => {
     expect(selectApiBaseUrl("web", {})).toBe("/api/v1");
     expect(

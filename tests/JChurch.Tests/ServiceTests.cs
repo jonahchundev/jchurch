@@ -218,6 +218,38 @@ public sealed class ServiceTests
     }
 
     [Fact]
+    public async Task MergeRejectsStaleLoserBeforeMovingAttendance()
+    {
+        var (repositories, directory, merges, checkIns, keeper, loser) = await MergeFixture();
+        var receipt = (await checkIns.CheckIn(keeper.ChurchId, "occurrence", loser.Id)).Item;
+        await directory.Save(loser with { Phone = "555-0100" }, loser.ChurchId, loser.Id, loser.ETag);
+
+        var error = await Assert.ThrowsAsync<ApiException>(() => merges.Merge(keeper.ChurchId, keeper.Id, loser.Id, loser.ETag, null, ""));
+
+        Assert.Equal(412, error.Status);
+        Assert.True((await repositories.Attendance.Get(loser.ChurchId, receipt.Id, "occurrence"))!.Active);
+        Assert.Null(await repositories.Attendance.Get(keeper.ChurchId, CheckInService.ReceiptId("occurrence", keeper.Id), "occurrence"));
+        Assert.True((await directory.Get<Member>(loser.ChurchId, loser.Id)).Active);
+    }
+
+    [Fact]
+    public async Task MergeTakingLoserScanCodeArchivesWithUpdatedVersion()
+    {
+        var (repositories, directory, merges, checkIns, keeper, loser) = await MergeFixture();
+        loser = await directory.Save(loser with { ScanCode = "merge-scan-code", ScanCodeFormat = "qr" }, loser.ChurchId, loser.Id, loser.ETag);
+        await checkIns.CheckIn(keeper.ChurchId, "occurrence", keeper.Id);
+        await checkIns.CheckIn(keeper.ChurchId, "occurrence", loser.Id);
+
+        var result = await merges.Merge(keeper.ChurchId, keeper.Id, loser.Id, loser.ETag,
+            keeper with { ScanCode = loser.ScanCode, ScanCodeFormat = loser.ScanCodeFormat }, keeper.ETag);
+
+        Assert.Equal(1, result.CheckInsSkipped);
+        Assert.False((await directory.Get<Member>(loser.ChurchId, loser.Id)).Active);
+        Assert.Equal(keeper.Id, (await repositories.Members.ResolveScanCode(keeper.ChurchId, "merge-scan-code"))!.Id);
+        Assert.Equal(1, (await repositories.Attendance.ActiveCheckInCounts(keeper.ChurchId, "event")).Single().CheckedInCount);
+    }
+
+    [Fact]
     public async Task MergeMovesCheckInAndPreservesOccurrenceCountAndTimestamp()
     {
         var (repositories, directory, merges, checkIns, keeper, loser) = await MergeFixture();

@@ -5,7 +5,11 @@ import { useQuery } from "@tanstack/react-query";
 import { DateTime } from "luxon";
 import { api, churchPath, useDebounce } from "../api/hooks";
 import type { Member } from "../api/types";
-import { useEvents, useGroups, useSummary } from "../reports/api";
+import { useAttendanceSequence, useEvents, useGroups, useSummary } from "../reports/api";
+import { AttendanceSequence, sequenceDate, sequenceMemberName } from "../reports/AttendanceSequenceView";
+import { buildAttendanceSequence, latestStreakLabel, statusLabel, validSequenceRange } from "../reports/attendanceSequence";
+import { AbsenceFilterSheet } from "../reports/AbsenceFilterSheet";
+import { absencePreset, absenceSettingsLabel, DEFAULT_ABSENCE_SETTINGS, filterAbsenceRows, type AbsenceSettings } from "../reports/attendanceSequenceFilters";
 import { ExportMenu } from "../reports/export";
 import { presetRange, ReportFilters, type ReportRange } from "../reports/ReportFilters";
 import { compareRosterMembers } from "../reports/rosterSort";
@@ -14,6 +18,8 @@ import { SvgBars } from "../reports/SvgBars";
 import { memberName } from "./Members";
 import {
   Heading,
+  Button,
+  Label,
   IconButton,
   Notice,
   Page,
@@ -44,6 +50,19 @@ export default function GroupReport() {
   const [memberNameSort, setMemberNameSort] = useState("");
   const [memberCreatedOnSort, setMemberCreatedOnSort] = useState("");
   const [sortOpen, setSortOpen] = useState(false);
+  const [view, setView] = useState("totals");
+  const [absenceSettings, setAbsenceSettings] = useState<AbsenceSettings>({ ...DEFAULT_ABSENCE_SETTINGS });
+  const [now, setNow] = useState(Date.now);
+  const isSequence = view === "sequence";
+  const rangeValid = validSequenceRange(range.from, range.to);
+  const sequence = useAttendanceSequence(params.churchId, eventId, range.from, range.to, !!groupId && isSequence);
+  useEffect(() => {
+    if (!isSequence) return;
+    const nextStart = Math.min(...(sequence.data?.sessions ?? []).map(session => Date.parse(session.startsAt)).filter(start => start > Date.now()));
+    const timer = setTimeout(() => setNow(Date.now()), Math.min(30000, Math.max(1, nextStart - Date.now())));
+    return () => clearTimeout(timer);
+  }, [sequence.data, now, isSequence]);
+  useEffect(() => { setNow(Date.now()); }, [sequence.data, isSequence]);
 
   const groups = useGroups(params.churchId);
   const events = useEvents(params.churchId);
@@ -54,8 +73,8 @@ export default function GroupReport() {
     from: range.from,
     to: range.to,
   };
-  const byMember = useSummary(params.churchId, "member", filters, !!groupId);
-  const byDay = useSummary(params.churchId, "day", filters, !!groupId);
+  const byMember = useSummary(params.churchId, "member", filters, !!groupId && !isSequence);
+  const byDay = useSummary(params.churchId, "day", filters, !!groupId && !isSequence);
   // Current group size = active members of the selected group (+ its subgroups when included).
   const members = useQuery({
     queryKey: [churchPath(params.churchId, "members"), "all"],
@@ -89,6 +108,9 @@ export default function GroupReport() {
   // The By member list applies the same search + sort/filter as the By Member screen, but
   // client-side: rows come from the attendance summary, names from the already-loaded members.
   const searchTerm = useDebounce(memberSearch).trim().toLowerCase();
+  const allSequenceRows = buildAttendanceSequence(activeMembers, sequence.data?.sessions ?? [], sequence.data?.receipts ?? [], now);
+  const sequenceRows = filterAbsenceRows(allSequenceRows.filter(row => sequenceMemberName(row).toLowerCase().includes(searchTerm)), absenceSettings, now);
+  const resetAbsenceSettings = () => setAbsenceSettings({ ...DEFAULT_ABSENCE_SETTINGS });
   const filteredMemberRows = useMemo(() => {
     const rows = memberRows.filter((row) => {
       if (!searchTerm) return true;
@@ -126,7 +148,7 @@ export default function GroupReport() {
     label: DateTime.fromISO(row.key).toFormat("LLL d"),
     value: row.checkedInCount,
   }));
-  const exportTable = {
+  const totalsExport = {
     filename: `attendance-by-group-${groupId}`,
     title: `Attendance by group — ${groupLabel}${eventId ? ` (${(events.data ?? []).find((candidate) => candidate.id === eventId)?.name ?? eventId})` : ""}`,
     headers: ["Event", "Member", "Check-ins"],
@@ -136,6 +158,22 @@ export default function GroupReport() {
       row.checkedInCount,
     ]),
   };
+  const selectedEvent = (events.data ?? []).find(candidate => candidate.id === eventId);
+  const timeZone = selectedEvent?.timeZone ?? "UTC";
+  const rangeLabel = range.from && range.to
+    ? `${DateTime.fromISO(range.from).toLocal().toFormat("LLL d, yyyy")} - ${DateTime.fromISO(range.to).minus({ milliseconds: 1 }).toLocal().toFormat("LLL d, yyyy")}` : "";
+  const exportTable = isSequence ? {
+    filename: `attendance-sequence-${groupId}`,
+    title: `Attendance sequence - ${groupLabel} - ${selectedEvent?.name ?? ""} - ${rangeLabel} - Current group members - ${absenceSettingsLabel(absenceSettings)} - As of ${sequenceDate(new Date(now).toISOString(), timeZone)} (${timeZone})`,
+    headers: ["Member", "Session", "Time zone", "Status", "Checked in", "Attended", "Absent", "Latest streak", "Recent missed", "Recent eligible sessions", "Requested recent window", "Last attended in selected dates", "Filter and sort", "Session in progress"],
+    rows: sequenceRows.flatMap(row => row.cells.map(cell => [
+      sequenceMemberName(row), sequenceDate(cell.session.startsAt, timeZone), timeZone, statusLabel[cell.status],
+      cell.receipt ? sequenceDate(cell.receipt.checkedInAt, timeZone) : "", row.attended, row.absent, latestStreakLabel(row.streak),
+      row.absenceMetrics.recentMissed, row.absenceMetrics.recentCount, Number(absenceSettings.window),
+      row.absenceMetrics.lastAttended ? sequenceDate(row.absenceMetrics.lastAttended, timeZone) : row.absenceMetrics.eligibleCount ? "No attendance in selected dates" : "No eligible started sessions",
+      absenceSettingsLabel(absenceSettings), Date.parse(cell.session.startsAt) <= now && now < Date.parse(cell.session.endsAt) ? "Yes" : "No",
+    ])),
+  } : totalsExport;
 
   // Group picker labels show the hierarchy: subgroups are prefixed with their parent.
   const groupOptions = (groups.data ?? [])
@@ -148,19 +186,32 @@ export default function GroupReport() {
     }))
     .sort((left, right) => left.label.localeCompare(right.label));
 
-  const pending = !!groupId && (byMember.isPending || byDay.isPending || members.isPending);
-  const failure = groups.error ?? events.error ?? byMember.error ?? byDay.error ?? members.error;
+  const sequenceEnabled = !!groupId && !!eventId && rangeValid;
+  const pending = !!groupId && (members.isPending || (isSequence ? sequenceEnabled && sequence.isFetching : byMember.isPending || byDay.isPending));
+  const failure = groups.error ?? events.error ?? members.error ?? (isSequence ? sequence.error : byMember.error ?? byDay.error);
 
   return (
     <Page
       title="By Group"
       eyebrow="Reports"
+      onRefresh={() => {
+        setNow(Date.now());
+        void members.refetch();
+        if (isSequence && sequenceEnabled) void sequence.refetch();
+        if (!isSequence) { void byMember.refetch(); void byDay.refetch(); }
+      }}
+      refreshing={isSequence ? sequence.isFetching : byMember.isFetching || byDay.isFetching}
       actions={
         <>
+          {isSequence && <IconButton icon="refresh-outline" label="Refresh attendance sequence" disabled={!sequenceEnabled || sequence.isFetching} onPress={() => {
+            setNow(Date.now());
+            void members.refetch();
+            void sequence.refetch();
+          }} />}
           <ExportMenu
             table={exportTable}
-            extras={{ stats, bars: trendBars, barsTitle: "Daily trend" }}
-            disabled={!groupId || !memberRows.length}
+            extras={isSequence ? {} : { stats, bars: trendBars, barsTitle: "Daily trend" }}
+            disabled={!groupId || (isSequence ? !sequenceEnabled || pending || !!failure || !sequenceRows.length || !sequence.data?.sessions.length : !memberRows.length)}
           />
           <IconButton
             icon="close-outline"
@@ -196,6 +247,9 @@ export default function GroupReport() {
             onChange={setIncludeSubgroups}
           />
           <ReportFilters onChange={setRange} />
+          <SegmentedControl label="Report view" value={view} onChange={setView} options={[
+            { value: "totals", label: "Totals" }, { value: "sequence", label: "Attendance sequence" },
+          ]} />
         </>
       )}
       {!groupId && !groups.isPending && (
@@ -204,15 +258,33 @@ export default function GroupReport() {
       <QueryState
         pending={pending}
         error={failure}
-        empty={!!groupId && !memberRows.length}
+        empty={!!groupId && !isSequence && !memberRows.length}
         emptyText="No check-ins for this group in this date range."
         onRetry={() => {
-          void byMember.refetch();
-          void byDay.refetch();
+          if (isSequence && sequenceEnabled) void sequence.refetch();
+          if (!isSequence) { void byMember.refetch(); void byDay.refetch(); }
           void members.refetch();
+          void groups.refetch();
+          void events.refetch();
         }}
       />
-      {!!groupId && !!memberRows.length && (
+      {!!groupId && isSequence && !eventId && <Notice>Choose one event for the attendance sequence.</Notice>}
+      {!!groupId && isSequence && !rangeValid && <Notice>Choose a complete date range of 93 days or fewer for the attendance sequence.</Notice>}
+      {isSequence && sequenceEnabled && !pending && !failure && sequence.data && (
+        <View style={styles.stack}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <View style={{ flex: 1, minWidth: 0 }}><SearchBox value={memberSearch} onChange={setMemberSearch} placeholder="Search members" /></View>
+            <IconButton icon="swap-vertical-outline" label="Sort and filter members" onPress={() => setSortOpen(true)} />
+          </View>
+          <Label muted>{sequenceRows.length} of {activeMembers.length} current members · {absenceSettingsLabel(absenceSettings)}</Label>
+          {absencePreset(absenceSettings) !== "all" && <Button secondary icon="refresh-outline" onPress={resetAbsenceSettings}>Clear attendance filters and sort</Button>}
+          {sequence.data.sessions.some(session => Date.parse(session.startsAt) <= now && now < Date.parse(session.endsAt)) && <Notice>A session is in progress. Missing check-ins already count toward absence filters.</Notice>}
+          {!activeMembers.length ? <Notice>No current members in this group.</Notice>
+            : !sequence.data.sessions.length ? <Notice>No sessions for this event in this date range.</Notice>
+            : <AttendanceSequence rows={sequenceRows} eventName={selectedEvent?.name ?? "Event"} timeZone={timeZone} rangeLabel={rangeLabel} sessionCount={sequence.data.sessions.length} recentWindow={Number(absenceSettings.window)} now={now} />}
+        </View>
+      )}
+      {!!groupId && !isSequence && !!memberRows.length && (
         <>
           <StatGrid stats={stats} />
           <View style={styles.stack}>
@@ -263,7 +335,8 @@ export default function GroupReport() {
           </View>
         </>
       )}
-      {sortOpen && (
+      {sortOpen && isSequence && <AbsenceFilterSheet settings={absenceSettings} onClose={() => setSortOpen(false)} onApply={settings => { setAbsenceSettings(settings); setSortOpen(false); }} />}
+      {sortOpen && !isSequence && (
         <Sheet title="Member sort and filter" onClose={() => setSortOpen(false)}>
           <View style={styles.stack}>
             <SegmentedControl label="Name order" value={memberNameSort} onChange={setMemberNameSort} options={[

@@ -33,13 +33,14 @@ export function createApi(
       body?: unknown;
       etag?: string;
       signal?: AbortSignal;
+      timeoutMs?: number;
     } = {},
   ): Promise<{ data: T; status: number }> {
     const controller = new AbortController();
     const abort = () => controller.abort();
     options.signal?.addEventListener("abort", abort, { once: true });
     if (options.signal?.aborted) abort();
-    const timer = setTimeout(abort, timeoutMs);
+    const timer = setTimeout(abort, options.timeoutMs ?? timeoutMs);
     try {
       const response = await fetcher(`${baseUrl.replace(/\/$/, "")}${path}`, {
         method: options.method ?? "GET",

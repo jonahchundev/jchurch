@@ -211,6 +211,42 @@ await api(`/users/${encodeURIComponent(smokeUser.email)}`, 'DELETE', undefined, 
 const archivedUser = await api(`/users/${encodeURIComponent(smokeUser.email)}`);
 assert.equal(archivedUser.active, false);
 await api(`/users/${encodeURIComponent(smokeUser.email)}/claim`, 'POST', undefined, 409);
+
+const mergeInput = { memberType: 'adult', firstName: 'Synthetic', lastName: 'Duplicate', groupIds: [] };
+const mergeKeeper = await api(`${root}/members`, 'POST', mergeInput, 201);
+const mergeLoser = await api(`${root}/members`, 'POST', { ...mergeInput, scanCode: '0000-merge-source', scanCodeFormat: 'qr' }, 201);
+const keptCheckIn = await api(checkInPath, 'POST', { memberId: mergeKeeper.id }, 201);
+await api(checkInPath, 'POST', { memberId: mergeLoser.id }, 201);
+const overlapCount = (await api(`${root}/events/${event.id}/occurrence-check-in-counts`)).items[0].checkedInCount;
+const mergePreview = await api(`${root}/members/${mergeKeeper.id}/merge?dryRun=true`, 'POST', { loserId: mergeLoser.id });
+assert.equal(mergePreview.skipped, 1);
+const overlapMerge = await api(`${root}/members/${mergeKeeper.id}/merge`, 'POST', {
+  loserId: mergeLoser.id, loserEtag: mergeLoser._etag, keeperEtag: mergeKeeper._etag,
+  keeperUpdate: { ...mergeInput, scanCode: mergeLoser.scanCode, scanCodeFormat: mergeLoser.scanCodeFormat },
+});
+assert.equal(overlapMerge.checkInsSkipped, 1);
+assert.equal((await api(`${root}/members/${mergeLoser.id}`)).active, false);
+assert.equal((await api(`${root}/members/${mergeKeeper.id}`)).active, true);
+assert.equal((await api(`${root}/members/${mergeKeeper.id}`)).scanCode, mergeLoser.scanCode);
+assert.equal((await api(`${root}/events/${event.id}/occurrence-check-in-counts`)).items[0].checkedInCount, overlapCount - 1);
+assert.equal((await api(`${checkInPath}/${mergeKeeper.id}`)).receipt.checkedInAt, keptCheckIn.checkedInAt);
+
+const moveKeeper = await api(`${root}/members`, 'POST', mergeInput, 201);
+let moveLoser = await api(`${root}/members`, 'POST', mergeInput, 201);
+const originalReceipt = await api(checkInPath, 'POST', { memberId: moveLoser.id }, 201);
+const staleMergeVersion = moveLoser._etag;
+moveLoser = await api(`${root}/members/${moveLoser.id}`, 'PUT', { ...mergeInput, phone: '555-0199' }, 200, moveLoser._etag);
+await api(`${root}/members/${moveKeeper.id}/merge`, 'POST', { loserId: moveLoser.id, loserEtag: staleMergeVersion }, 412);
+assert.equal((await api(`${checkInPath}/${moveLoser.id}`)).checkedIn, true);
+assert.equal((await api(`${checkInPath}/${moveKeeper.id}`)).checkedIn, false);
+const moveCount = (await api(`${root}/events/${event.id}/occurrence-check-in-counts`)).items[0].checkedInCount;
+const movedMerge = await api(`${root}/members/${moveKeeper.id}/merge`, 'POST', { loserId: moveLoser.id, loserEtag: moveLoser._etag });
+assert.equal(movedMerge.checkInsMoved, 1);
+assert.equal((await api(`${root}/members/${moveLoser.id}`)).active, false);
+assert.equal((await api(`${root}/members/${moveKeeper.id}`)).active, true);
+assert.equal((await api(`${checkInPath}/${moveKeeper.id}`)).receipt.checkedInAt, originalReceipt.checkedInAt);
+assert.equal((await api(`${root}/events/${event.id}/occurrence-check-in-counts`)).items[0].checkedInCount, moveCount);
+
 await api(root, 'DELETE', undefined, 204, church._etag);
 await api(`/churches/${other.id}`, 'DELETE', undefined, 204, other._etag);
-console.log('HTTP smoke passed: directory, ETags, isolation, 100 duplicate check-ins, scan assignment/reissue, legacy updates, scan receipts/status, cancellation, reporting, archival, users (invite/claim/update/filter/archive), and OpenAPI.');
+console.log('HTTP smoke passed: directory, ETags, isolation, 100 duplicate check-ins, scan assignment/reissue, legacy updates, scan receipts/status, cancellation, reporting, member merge/archive (overlap, unique, scan-code takeover, stale-version rejection), archival, users (invite/claim/update/filter/archive), and OpenAPI.');
