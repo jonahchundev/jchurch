@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using JChurch.Domain;
 using Microsoft.Azure.Cosmos;
+using Microsoft.Extensions.Logging;
 
 namespace JChurch.Storage;
 /// <summary>
@@ -29,7 +30,7 @@ public sealed class CosmosJsonSerializer : CosmosSerializer
     public override Stream ToStream<T>(T input) => new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(input, Options));
 }
 
-public sealed class CosmosRepository<T>(CosmosClient client, CosmosSettings settings, TimeProvider? timeProvider = null) : IRepository<T> where T : Document
+public sealed class CosmosRepository<T>(CosmosClient client, CosmosSettings settings, TimeProvider? timeProvider = null, ILogger<CosmosRepository<T>>? logger = null) : IRepository<T> where T : Document
 {
     private sealed record MemberDatePosition(int Phase, string? ContinuationToken);
     private sealed record AttendanceMemberSummaryRow(string Key, int CheckedInCount);
@@ -242,7 +243,7 @@ public sealed class CosmosRepository<T>(CosmosClient client, CosmosSettings sett
         if (keeperAttendance.OccurrenceId is null) throw new ApiException(400, "invalid_request", "A keeper occurrence is required.");
         var partition = Partition(churchId, keeperAttendance.OccurrenceId);
         var now = clock.GetUtcNow();
-        Document stamped = (Document)keeper with { CreatedOn = now, UpdatedOn = now };
+        var stamped = keeperAttendance with { CreatedOn = now, UpdatedOn = now };
         var batch = container.CreateTransactionalBatch(partition)
             .DeleteItem(loserId, new TransactionalBatchItemRequestOptions { IfMatchEtag = loserEtag });
         // When the keeper's slot is occupied by an inactive receipt (e.g. an undone check-in), replace it
@@ -254,6 +255,12 @@ public sealed class CosmosRepository<T>(CosmosClient client, CosmosSettings sett
         if (!response.IsSuccessStatusCode)
         {
             var status = BatchFailure(response);
+            var failedIndex = -1;
+            for (var index = 0; index < response.Count; index++)
+                if (response[index].StatusCode == status) { failedIndex = index; break; }
+            logger?.LogWarning("Attendance transfer failed with status {Status}, operation {OperationIndex} ({Operation}), Cosmos activity {ActivityId}; church {ChurchId}, occurrence {OccurrenceId}, source {SourceId}, destination {DestinationId}",
+                (int)status, failedIndex, failedIndex == 0 ? "DeleteSource" : failedIndex == 1 ? keeperEtag is null ? "CreateDestination" : "ReplaceDestination" : "Batch",
+                response.ActivityId, churchId, keeperAttendance.OccurrenceId, loserId, stamped.Id);
             if (status is HttpStatusCode.NotFound) throw new ApiException(404, "not_found", "The check-in to move was not found.");
             if (status is HttpStatusCode.PreconditionFailed) throw new ApiException(412, "stale_version", "ETag is stale.");
             if (status is HttpStatusCode.Conflict) throw new ApiException(409, "already_exists", "The kept member already has a check-in for this occurrence.");

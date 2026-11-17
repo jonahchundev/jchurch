@@ -48,6 +48,8 @@ public sealed class CosmosContractTests
             await DeleteIfPresent(database.GetContainer("attendance"), "occurrence_member_b", new PartitionKeyBuilder().Add(church).Add("occurrence").Build());
             foreach (var memberId in new[] { "member_b", "member_c" })
                 await DeleteIfPresent(database.GetContainer("attendance"), $"occurrence2_{memberId}", new PartitionKeyBuilder().Add(church).Add("occurrence2").Build());
+            foreach (var receiptId in new[] { "transfer_source", "transfer_keeper" })
+                await DeleteIfPresent(database.GetContainer("attendance"), receiptId, new PartitionKeyBuilder().Add(church).Add("transfer_occurrence").Build());
         }
     }
 
