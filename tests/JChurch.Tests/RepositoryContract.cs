@@ -122,5 +122,60 @@ internal static class RepositoryContract
         Assert.False((await attendance.Get(church, duplicate.Id, "occurrence2"))!.Active);
         Assert.Equal(kept.CheckedInAt, (await attendance.Get(church, kept.Id, "occurrence2"))!.CheckedInAt);
         Assert.Equal(1, (await attendance.ActiveCheckInCounts(church, "event")).Single(row => row.OccurrenceId == "occurrence2").CheckedInCount);
+        await TransferContract(attendance, church);
+    }
+
+    private static async Task TransferContract(IRepository<Attendance> attendance, string church)
+    {
+        const string occurrence = "transfer_occurrence";
+        var timestamp = DateTimeOffset.Parse("2020-01-01T10:00:00Z");
+        var source = (await attendance.Create(new Attendance
+        {
+            Id = "transfer_source", ChurchId = church, OccurrenceId = occurrence, EventId = "transfer_event", MemberId = "source",
+            CheckedInAt = timestamp, GroupIds = ["group"], InclusiveGroupIds = ["parent", "group"],
+            Audit = [new AttendanceAuditEntry { Action = "checked_in", OccurredAt = timestamp }]
+        })).Item;
+        var destination = source with
+        {
+            Id = "transfer_keeper", MemberId = "keeper", ETag = "",
+            Audit = [.. source.Audit, new AttendanceAuditEntry { Action = "merged-from source", OccurredAt = timestamp.AddDays(1) }]
+        };
+
+        Assert.Equal(412, (await Assert.ThrowsAsync<ApiException>(() => attendance.Transfer(church, source.Id, "\"stale\"", destination))).Status);
+        Assert.Equal(source.ETag, (await attendance.Get(church, source.Id, occurrence))!.ETag);
+        Assert.Null(await attendance.Get(church, destination.Id, occurrence));
+        await attendance.Transfer(church, source.Id, source.ETag, destination);
+        Assert.Null(await attendance.Get(church, source.Id, occurrence));
+        var kept = (await attendance.Get(church, destination.Id, occurrence))!;
+        Assert.True(kept.Active);
+        Assert.Equal("keeper", kept.MemberId);
+        Assert.Equal("transfer_event", kept.EventId);
+        Assert.Equal(timestamp, kept.CheckedInAt);
+        Assert.Equal(destination.GroupIds, kept.GroupIds);
+        Assert.Equal(destination.InclusiveGroupIds, kept.InclusiveGroupIds);
+        Assert.Equal(destination.Audit, kept.Audit);
+        Assert.Equal(1, (await attendance.ActiveCheckInCounts(church, "transfer_event")).Single().CheckedInCount);
+
+        source = (await attendance.Create(source with { ETag = "" })).Item;
+        Assert.Equal(409, (await Assert.ThrowsAsync<ApiException>(() => attendance.Transfer(church, source.Id, source.ETag, destination))).Status);
+        Assert.Equal(source.ETag, (await attendance.Get(church, source.Id, occurrence))!.ETag);
+        Assert.Equal(kept.ETag, (await attendance.Get(church, kept.Id, occurrence))!.ETag);
+
+        var inactive = await attendance.Replace(kept with { Active = false }, kept.ETag);
+        Assert.Equal(412, (await Assert.ThrowsAsync<ApiException>(() => attendance.Transfer(church, source.Id, source.ETag, destination, kept.ETag))).Status);
+        Assert.Equal(source.ETag, (await attendance.Get(church, source.Id, occurrence))!.ETag);
+        Assert.Equal(inactive.ETag, (await attendance.Get(church, inactive.Id, occurrence))!.ETag);
+        Assert.Equal(412, (await Assert.ThrowsAsync<ApiException>(() => attendance.Transfer(church, source.Id, "\"stale\"", destination, inactive.ETag))).Status);
+        Assert.False((await attendance.Get(church, inactive.Id, occurrence))!.Active);
+
+        await attendance.Transfer(church, source.Id, source.ETag, destination, inactive.ETag);
+        Assert.Null(await attendance.Get(church, source.Id, occurrence));
+        var restored = (await attendance.Get(church, destination.Id, occurrence))!;
+        Assert.True(restored.Active);
+        Assert.Equal(timestamp, restored.CheckedInAt);
+        Assert.Equal(destination.GroupIds, restored.GroupIds);
+        Assert.Equal(destination.InclusiveGroupIds, restored.InclusiveGroupIds);
+        Assert.Equal(destination.Audit, restored.Audit);
+        Assert.Equal(1, (await attendance.ActiveCheckInCounts(church, "transfer_event")).Single().CheckedInCount);
     }
 }
